@@ -99,11 +99,11 @@ class _MainPageState extends State<MainPage> with TickerProviderStateMixin {
                       ),
                     ),
                     
-                    // Top right info button - positioned with 16px margins
+                    // Top right info button - positioned 80pt from top, 40pt from right
                     // About button
                     Positioned(
-                      top: 16,
-                      right: 70,
+                      top: 80,
+                      right: 40,
                       child: GestureDetector(
                         onTap: () {
                           Navigator.push(
@@ -227,7 +227,7 @@ class _MainPageState extends State<MainPage> with TickerProviderStateMixin {
               style: ElevatedButton.styleFrom(
                 backgroundColor: viewModel.isSearching
                   ? const Color(0xFFE53E3E) // Red color for stop button
-                  : AppTheme.buttonAndAbout,
+                  : AppTheme.indicatorAndIcon, // Golden yellow like about icon
                 foregroundColor: viewModel.isSearching
                   ? AppTheme.whiteText 
                   : AppTheme.darkText,
