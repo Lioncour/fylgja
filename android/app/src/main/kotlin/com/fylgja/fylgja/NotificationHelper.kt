@@ -12,6 +12,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -27,6 +28,9 @@ class NotificationHelper(private val context: Context) {
         
         // Static reference to current MediaPlayer for stopping continuous sound
         private var currentMediaPlayer: MediaPlayer? = null
+        
+        // Wake lock for standby mode sound playback
+        private var wakeLock: PowerManager.WakeLock? = null
         
         // Static method to force stop all sound and vibration
         fun forceStopAll() {
@@ -68,6 +72,51 @@ class NotificationHelper(private val context: Context) {
             } finally {
                 currentMediaPlayer = null
             }
+            
+            // Release wake lock
+            try {
+                wakeLock?.let { lock ->
+                    if (lock.isHeld) {
+                        lock.release()
+                        println("NotificationHelper: Wake lock released")
+                    }
+                }
+            } catch (e: Exception) {
+                println("NotificationHelper: Error releasing wake lock: ${e.message}")
+            } finally {
+                wakeLock = null
+            }
+        }
+        
+        // Acquire wake lock for standby mode sound playback
+        fun acquireWakeLock(context: Context) {
+            try {
+                val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+                wakeLock = powerManager.newWakeLock(
+                    PowerManager.PARTIAL_WAKE_LOCK,
+                    "Fylgja::CoverageSound"
+                )
+                wakeLock?.acquire(30000) // 30 seconds timeout
+                println("NotificationHelper: Wake lock acquired for standby mode")
+            } catch (e: Exception) {
+                println("NotificationHelper: Error acquiring wake lock: ${e.message}")
+            }
+        }
+        
+        // Release wake lock
+        fun releaseWakeLock() {
+            try {
+                wakeLock?.let { lock ->
+                    if (lock.isHeld) {
+                        lock.release()
+                        println("NotificationHelper: Wake lock released")
+                    }
+                }
+            } catch (e: Exception) {
+                println("NotificationHelper: Error releasing wake lock: ${e.message}")
+            } finally {
+                wakeLock = null
+            }
         }
     }
 
@@ -94,9 +143,9 @@ class NotificationHelper(private val context: Context) {
                     println("NotificationHelper: Custom Sound URI: $soundUri")
 
                     val audioAttributes = AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                        .setUsage(AudioAttributes.USAGE_ALARM) // Use ALARM for standby mode
                         .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                        .setFlags(AudioAttributes.FLAG_AUDIBILITY_ENFORCED)
+                        .setFlags(AudioAttributes.FLAG_AUDIBILITY_ENFORCED or AudioAttributes.FLAG_HW_AV_SYNC)
                         .build()
                     setSound(soundUri, audioAttributes)
 
@@ -122,23 +171,29 @@ class NotificationHelper(private val context: Context) {
     fun showCoverageNotification() {
         println("NotificationHelper: showCoverageNotification called")
         
+        // Acquire wake lock for standby mode sound playback
+        acquireWakeLock(context)
+        
         // Cancel any existing vibration first
         cancelVibration()
         
-        // FORCE SOUND FIRST - Play pip pip sound continuously
+        // FORCE SOUND FIRST - Multiple strategies for standby mode
+        val soundUri = Uri.parse("android.resource://${context.packageName}/raw/notification_sound")
+        
         try {
             // Stop any existing sound first
             currentMediaPlayer?.release()
             
-            val soundUri = Uri.parse("android.resource://${context.packageName}/raw/notification_sound")
             currentMediaPlayer = MediaPlayer().apply {
                 setDataSource(context, soundUri)
                 setAudioAttributes(
                     AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                        .setUsage(AudioAttributes.USAGE_ALARM) // Use ALARM for standby mode
                         .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .setFlags(AudioAttributes.FLAG_AUDIBILITY_ENFORCED or AudioAttributes.FLAG_HW_AV_SYNC)
                         .build()
                 )
+                setVolume(1.0f, 1.0f) // Maximum volume
                 prepare()
                 start()
                 setOnCompletionListener { 
@@ -152,9 +207,18 @@ class NotificationHelper(private val context: Context) {
                     }
                 }
             }
-            println("NotificationHelper: Sound played continuously with MediaPlayer")
+            println("NotificationHelper: Sound played continuously with MediaPlayer (ALARM usage)")
         } catch (e: Exception) {
             println("NotificationHelper: Direct sound error: ${e.message}")
+        }
+        
+        // FALLBACK: Also use RingtoneManager for standby mode
+        try {
+            val ringtone = RingtoneManager.getRingtone(context, soundUri)
+            ringtone?.play()
+            println("NotificationHelper: Fallback sound played with RingtoneManager")
+        } catch (e: Exception) {
+            println("NotificationHelper: RingtoneManager fallback error: ${e.message}")
         }
         
         // SIMPLIFIED VIBRATION - Single pattern that's easier to cancel
@@ -194,28 +258,30 @@ class NotificationHelper(private val context: Context) {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // FORCE SOUND AND VIBRATION IN NOTIFICATION
-        val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-        println("NotificationHelper: Using sound URI: $soundUri")
+        // FORCE SOUND AND VIBRATION IN NOTIFICATION - Use custom sound for standby
+        val customSoundUri = Uri.parse("android.resource://${context.packageName}/raw/notification_sound")
+        println("NotificationHelper: Using custom sound URI: $customSoundUri")
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
             .setContentTitle("Du har jammen meg dekning!")
             .setContentText("Trykk her for å pause søkingen")
-            .setPriority(NotificationCompat.PRIORITY_MAX) // Changed to MAX for standby
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setPriority(NotificationCompat.PRIORITY_MAX) // MAX for standby
+            .setCategory(NotificationCompat.CATEGORY_ALARM) // ALARM category for standby
             .setAutoCancel(false)
             .setOngoing(true)
             .setContentIntent(pendingIntent)
-            .setSound(soundUri)
-            .setVibrate(longArrayOf(0, 1000, 500, 2000))
+            .setSound(customSoundUri) // Use custom sound
+            .setVibrate(longArrayOf(0, 1000, 500, 2000, 500, 1000)) // Aggressive vibration
             .setDefaults(NotificationCompat.DEFAULT_ALL)
-            .setFullScreenIntent(pendingIntent, true) // This helps with standby
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC) // This helps with standby
+            .setFullScreenIntent(pendingIntent, true) // Critical for standby
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC) // Critical for standby
             .setLights(0xFF0000FF.toInt(), 1000, 1000) // Red light for attention
             .setTimeoutAfter(0) // Don't timeout
             .setShowWhen(true)
             .setWhen(System.currentTimeMillis())
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE) // For standby
+            .setColor(0xFF0000FF.toInt()) // Red color for urgency
             .build()
 
         with(NotificationManagerCompat.from(context)) {
@@ -272,6 +338,9 @@ class NotificationHelper(private val context: Context) {
             }
         }
         currentMediaPlayer = null
+        
+        // Release wake lock
+        releaseWakeLock()
         
         // Cancel notification
         with(NotificationManagerCompat.from(context)) {
