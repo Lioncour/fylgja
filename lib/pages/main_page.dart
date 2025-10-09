@@ -68,7 +68,7 @@ class _MainPageState extends State<MainPage> with TickerProviderStateMixin {
                     // Main status indicator - positioned at bottom of top section
                     Center(
                       child: Padding(
-                        padding: EdgeInsets.only(top: MediaQuery.of(context).size.height * 0.25), // Push down toward purple section
+                        padding: EdgeInsets.only(top: MediaQuery.of(context).size.height * 0.30), // Push down more toward purple section
                         child: RotationTransition(
                           turns: _rotationAnimation,
                           child: Container(
@@ -194,18 +194,9 @@ class _MainPageState extends State<MainPage> with TickerProviderStateMixin {
             ),
           ),
           const SizedBox(height: 8),
-          Row(
-            children: [
-              const Text(
-                'Superkort tekst som forklarer hva appen gjør',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: AppTheme.whiteText,
-                  fontWeight: FontWeight.w400,
-                  height: 1.3,
-                ),
-              ),
-              if (viewModel.isSearching) ...[
+          if (viewModel.isSearching) ...[
+            Row(
+              children: [
                 const SizedBox(width: 8),
                 SizedBox(
                   width: 8,
@@ -216,13 +207,14 @@ class _MainPageState extends State<MainPage> with TickerProviderStateMixin {
                   ),
                 ),
               ],
-            ],
-          ),
+            ),
+          ],
           const SizedBox(height: 32),
-          Container(
-            width: MediaQuery.of(context).size.width * 0.4, // 40% width
-            margin: const EdgeInsets.symmetric(horizontal: 0),
-            child: ElevatedButton(
+          Center(
+            child: Container(
+              width: MediaQuery.of(context).size.width * 0.4, // 40% width
+              margin: const EdgeInsets.symmetric(horizontal: 0),
+              child: ElevatedButton(
               onPressed: viewModel.isSearching ? viewModel.stopSearch : viewModel.startSearch,
               style: ElevatedButton.styleFrom(
                 backgroundColor: viewModel.isSearching
@@ -249,6 +241,7 @@ class _MainPageState extends State<MainPage> with TickerProviderStateMixin {
                 ),
               ),
             ),
+          ),
           ),
         ],
       ),
