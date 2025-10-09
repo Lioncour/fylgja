@@ -8,6 +8,7 @@ class BackgroundService {
   static bool _wasConnected = false;
   static bool _isPaused = false;
   static bool _coverageAlreadyFound = false;
+  static bool _isFirstSearch = true;
   static Timer? _pauseTimer;
   static Timer? _monitoringTimer;
   static Timer? _initialCheckTimer;
@@ -106,24 +107,22 @@ class BackgroundService {
   static void _startMonitoring(ServiceInstance service) {
     print('Background service: _startMonitoring called - _monitoringTimer active: ${_monitoringTimer?.isActive}');
     
-    // Prevent multiple monitoring instances
-    if (_monitoringTimer?.isActive == true) {
-      print('Background service: Monitoring already active, skipping duplicate start');
-      return;
-    }
+    // Cancel any existing background monitoring
+    _monitoringTimer?.cancel();
+    _monitoringTimer = null;
+    _initialCheckTimer?.cancel();
+    _initialCheckTimer = null;
     
     _wasConnected = false;
     _isPaused = false;
+    _coverageAlreadyFound = false; // Reset coverage found flag for new search
     
     // Notify that service started
     service.invoke('serviceStarted');
     print('Background service: serviceStarted event sent');
     
-    // Always start with _wasConnected = false to detect new connections
-    // This ensures we always trigger coverage when starting the search
-    _wasConnected = false;
-    _coverageAlreadyFound = false; // Reset coverage found flag for new search
     print('Background service: Starting search - _wasConnected set to false to detect new connections');
+    print('Background service: Is first search: $_isFirstSearch');
     
     // Check connectivity every 2 seconds for more responsive detection
     _monitoringTimer = Timer.periodic(const Duration(seconds: 2), (timer) async {
@@ -136,6 +135,22 @@ class BackgroundService {
       
       await _checkConnectivity(service);
     });
+    
+    // IMMEDIATE connectivity check for first search
+    print('Background service: Immediate connectivity check for first search...');
+    _checkConnectivity(service);
+    
+    // Force trigger for first search after a short delay
+    if (_isFirstSearch) {
+      Timer(const Duration(milliseconds: 2000), () {
+        print('Background service: Force trigger for first search...');
+        if (!_coverageAlreadyFound) {
+          print('Background service: First search force trigger - checking connectivity again');
+          _checkConnectivity(service);
+        }
+      });
+      _isFirstSearch = false;
+    }
     
     // More aggressive initial checks for first search
     _initialCheckTimer = Timer(const Duration(milliseconds: 500), () {
@@ -223,6 +238,7 @@ class BackgroundService {
     _wasConnected = false;
     _isPaused = false;
     _coverageAlreadyFound = false; // Reset coverage found flag
+    _isFirstSearch = true; // Reset first search flag
     _pauseStartTime = null;
     _pauseDurationMinutes = 0;
     _monitoringTimer?.cancel();
