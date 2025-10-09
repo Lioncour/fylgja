@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Fylgja</string>
+    <string name="notification_channel_id">fylgja_channel</string>
+    <string name="notification_channel_name">Coverage Alerts</string>
+    <string name="notification_channel_description">Notifications for when Fylgja finds network coverage.</string>
+</resources>
