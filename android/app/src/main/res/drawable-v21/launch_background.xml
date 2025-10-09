@@ -3,10 +3,10 @@
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:drawable="@color/primaryBackground" />
 
-    <!-- Search logo as splash screen -->
+    <!-- App launcher icon as splash screen -->
     <item>
         <bitmap
             android:gravity="center"
-            android:src="@drawable/searchlogo" />
+            android:src="@mipmap/ic_launcher" />
     </item>
 </layer-list>

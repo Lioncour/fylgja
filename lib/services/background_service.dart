@@ -91,24 +91,20 @@ class BackgroundService {
       await _checkConnectivity(service);
     });
     
-    // Immediate connectivity check without delay (after timer is created)
-    print('Background service: Immediate connectivity check...');
-    _checkConnectivity(service);
-    
-    // Check connectivity immediately first with a small delay to ensure service is ready
-    _initialCheckTimer = Timer(const Duration(milliseconds: 500), () {
+    // Wait a bit longer for service to be fully ready before first check
+    _initialCheckTimer = Timer(const Duration(milliseconds: 1000), () {
       print('Background service: Initial connectivity check after delay...');
       _checkConnectivity(service);
     });
     
     // Additional check after a longer delay to catch any missed connections
-    Timer(const Duration(milliseconds: 1000), () {
+    Timer(const Duration(milliseconds: 2000), () {
       print('Background service: Secondary connectivity check...');
       _checkConnectivity(service);
     });
     
     // Third check after even longer delay
-    Timer(const Duration(milliseconds: 2000), () {
+    Timer(const Duration(milliseconds: 3000), () {
       print('Background service: Tertiary connectivity check...');
       _checkConnectivity(service);
     });
@@ -120,7 +116,7 @@ class BackgroundService {
     try {
       print('Background service: ===== CONNECTIVITY CHECK START =====');
       print('Background service: Monitoring timer active: ${_monitoringTimer?.isActive ?? false}');
-      print('Background service: Was connected: $_wasConnected');
+      print('Background service: Was connected: $_wasConnected, Coverage already found: $_coverageAlreadyFound');
       
       // Check if monitoring is still active before proceeding
       if (_monitoringTimer == null || !_monitoringTimer!.isActive) {
@@ -160,6 +156,11 @@ class BackgroundService {
     } catch (e) {
       print('Background service: ERROR in connectivity check: $e');
       print('Background service: Stack trace: ${StackTrace.current}');
+      
+      // If there's an error, try to reset state and continue
+      print('Background service: Attempting to recover from error...');
+      _wasConnected = false;
+      _coverageAlreadyFound = false;
     }
   }
   

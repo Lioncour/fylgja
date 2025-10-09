@@ -90,6 +90,8 @@ class MainViewModel extends ChangeNotifier {
     } else {
       print('UI: Service not running, starting service');
       await service.startService();
+      // Add a small delay to ensure service is fully initialized
+      await Future.delayed(const Duration(milliseconds: 500));
     }
     
     // Set searching state immediately to prevent double starts
