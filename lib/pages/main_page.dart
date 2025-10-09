@@ -194,21 +194,6 @@ class _MainPageState extends State<MainPage> with TickerProviderStateMixin {
             ),
           ),
           const SizedBox(height: 8),
-          if (viewModel.isSearching) ...[
-            Row(
-              children: [
-                const SizedBox(width: 8),
-                SizedBox(
-                  width: 8,
-                  height: 8,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(AppTheme.indicatorAndIcon),
-                  ),
-                ),
-              ],
-            ),
-          ],
           const SizedBox(height: 32),
           Center(
             child: Container(
