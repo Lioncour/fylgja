@@ -21,6 +21,7 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.0
+  flutter_native_splash: ^2.3.10
 
 flutter:
   uses-material-design: true
@@ -29,3 +30,12 @@ flutter:
     - assets/audio/
     - assets/about icon.png
     - assets/searchlogo.png
+
+flutter_native_splash:
+  color: "#FFFDE7"
+  image: assets/searchlogo.png
+  android_12:
+    image: assets/searchlogo.png
+    color: "#FFFDE7"
+  android_gravity: center
+  fullscreen: true

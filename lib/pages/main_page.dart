@@ -14,6 +14,7 @@ class MainPage extends StatefulWidget {
 class _MainPageState extends State<MainPage> with TickerProviderStateMixin {
   late AnimationController _rotationController;
   late Animation<double> _rotationAnimation;
+  static bool _isModalShowing = false;
 
   @override
   void initState() {
@@ -217,7 +218,7 @@ class _MainPageState extends State<MainPage> with TickerProviderStateMixin {
               ),
               child: Text(
                 viewModel.isSearching
-                  ? (viewModel.hasCoverage ? 'Dekning funnet!' : 'Stop søk') 
+                  ? (viewModel.hasCoverage ? 'Dekning funnet!' : 'Stop søk')
                   : 'Start søk',
                 style: const TextStyle(
                   fontSize: 16,
@@ -402,6 +403,12 @@ class _MainPageState extends State<MainPage> with TickerProviderStateMixin {
   }
   
   void _showCoverageFoundDialog(BuildContext context, MainViewModel viewModel) {
+    if (_isModalShowing) {
+      print('Modal already showing, ignoring duplicate request');
+      return;
+    }
+    
+    _isModalShowing = true;
     print('Showing coverage found modal');
     showModalBottomSheet(
       context: context,
@@ -473,6 +480,7 @@ class _MainPageState extends State<MainPage> with TickerProviderStateMixin {
                           onPressed: () {
                             print('Modal pause button pressed');
                             viewModel.pauseSearch();
+                            _isModalShowing = false;
                             Navigator.of(context).pop();
                           },
                           style: ElevatedButton.styleFrom(
@@ -490,6 +498,7 @@ class _MainPageState extends State<MainPage> with TickerProviderStateMixin {
                       Expanded(
                         child: ElevatedButton(
                           onPressed: () {
+                            _isModalShowing = false;
                             Navigator.of(context).pop();
                             viewModel.stopSearch();
                           },

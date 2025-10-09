@@ -47,9 +47,9 @@ class NotificationHelper(private val context: Context) {
                     setShowBadge(true)
                     lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC
 
-                    // FORCE sound and vibration settings
-                    val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-                    println("NotificationHelper: Sound URI: $soundUri")
+                    // FORCE sound and vibration settings - use custom sound
+                    val soundUri = Uri.parse("android.resource://${context.packageName}/raw/notification_sound")
+                    println("NotificationHelper: Custom Sound URI: $soundUri")
 
                     val audioAttributes = AudioAttributes.Builder()
                         .setUsage(AudioAttributes.USAGE_NOTIFICATION)
@@ -88,7 +88,7 @@ class NotificationHelper(private val context: Context) {
             // Stop any existing sound first
             currentMediaPlayer?.release()
             
-            val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            val soundUri = Uri.parse("android.resource://${context.packageName}/raw/notification_sound")
             currentMediaPlayer = MediaPlayer().apply {
                 setDataSource(context, soundUri)
                 setAudioAttributes(

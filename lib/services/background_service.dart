@@ -42,6 +42,11 @@ class BackgroundService {
   
   @pragma('vm:entry-point')
   static void onStart(ServiceInstance service) async {
+    // Reset coverage flag when service starts/restarts
+    _coverageAlreadyFound = false;
+    _wasConnected = false;
+    print('Background service: Service started - reset coverage flags');
+    
     service.on('startService').listen((event) {
       _startMonitoring(service);
     });
@@ -79,8 +84,8 @@ class BackgroundService {
     _coverageAlreadyFound = false; // Reset coverage found flag for new search
     print('Background service: Starting search - _wasConnected set to false to detect new connections');
     
-    // Check connectivity every 3 seconds for more responsive detection
-    _monitoringTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
+    // Check connectivity every 2 seconds for more responsive detection
+    _monitoringTimer = Timer.periodic(const Duration(seconds: 2), (timer) async {
       print('Background service: Timer tick - checking connectivity...');
       
       if (_isPaused) {
@@ -91,25 +96,34 @@ class BackgroundService {
       await _checkConnectivity(service);
     });
     
-    // Wait a bit longer for service to be fully ready before first check
-    _initialCheckTimer = Timer(const Duration(milliseconds: 1000), () {
+    // More aggressive initial checks for first search
+    _initialCheckTimer = Timer(const Duration(milliseconds: 500), () {
       print('Background service: Initial connectivity check after delay...');
       _checkConnectivity(service);
     });
     
-    // Additional check after a longer delay to catch any missed connections
-    Timer(const Duration(milliseconds: 2000), () {
+    // Additional checks to catch any missed connections
+    Timer(const Duration(milliseconds: 1000), () {
       print('Background service: Secondary connectivity check...');
       _checkConnectivity(service);
     });
     
-    // Third check after even longer delay
-    Timer(const Duration(milliseconds: 3000), () {
-      print('Background service: Tertiary connectivity check...');
+    Timer(const Duration(milliseconds: 1500), () {
+      print('Background service: Third connectivity check...');
       _checkConnectivity(service);
     });
     
-    print('Background service: Timer created and started - will check connectivity every 3 seconds');
+    Timer(const Duration(milliseconds: 2000), () {
+      print('Background service: Fourth connectivity check...');
+      _checkConnectivity(service);
+    });
+    
+    Timer(const Duration(milliseconds: 2500), () {
+      print('Background service: Fifth connectivity check...');
+      _checkConnectivity(service);
+    });
+    
+    print('Background service: Timer created and started - will check connectivity every 2 seconds');
   }
   
   static Future<void> _checkConnectivity(ServiceInstance service) async {
@@ -200,3 +214,4 @@ class BackgroundService {
   }
   
 }
+

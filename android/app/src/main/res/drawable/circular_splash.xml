@@ -1,11 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item>
-        <bitmap android:gravity="fill" android:src="@drawable/background"/>
+        <shape android:shape="oval">
+            <solid android:color="@color/primaryBackground" />
+            <size android:width="200dp" android:height="200dp" />
+        </shape>
     </item>
     <item android:gravity="center">
         <bitmap
             android:gravity="center"
-            android:src="@drawable/circular_splash" />
+            android:src="@drawable/searchlogo" />
     </item>
 </layer-list>

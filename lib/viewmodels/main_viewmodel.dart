@@ -8,7 +8,8 @@ class MainViewModel extends ChangeNotifier {
   bool _isSearching = false;
   bool _hasCoverage = false;
   bool _isPaused = false;
-  int _pauseDuration = 5; // Default pause duration in minutes
+  int _pauseDuration = 5;
+  bool _isProcessing = false; // Prevent rapid button presses
   
   bool get isSearching => _isSearching;
   bool get hasCoverage => _hasCoverage;
@@ -25,6 +26,7 @@ class MainViewModel extends ChangeNotifier {
     _pauseDuration = prefs.getInt('pause_duration') ?? 5;
     notifyListeners();
   }
+
   
   void _setupServiceListener() {
     final service = FlutterBackgroundService();
@@ -42,6 +44,7 @@ class MainViewModel extends ChangeNotifier {
       print('UI: Coverage found event received');
       _hasCoverage = true;
       _isSearching = false;
+      _isProcessing = false; // Reset processing flag
       notifyListeners();
       print('UI: Coverage found - isSearching: $_isSearching, hasCoverage: $_hasCoverage');
       
@@ -63,6 +66,7 @@ class MainViewModel extends ChangeNotifier {
     service.on('serviceStopped').listen((event) {
       _isSearching = false;
       _hasCoverage = false;
+      _isProcessing = false; // Reset processing flag
       notifyListeners();
       print('Service stopped');
     });
@@ -70,36 +74,55 @@ class MainViewModel extends ChangeNotifier {
   
   Future<void> startSearch() async {
     print('UI: ===== START SEARCH CALLED =====');
-    print('UI: Current state - isSearching: $_isSearching, hasCoverage: $_hasCoverage');
+    print('UI: Current state - isSearching: $_isSearching, hasCoverage: $_hasCoverage, isProcessing: $_isProcessing');
+    
+    // Prevent rapid button presses
+    if (_isProcessing) {
+      print('UI: startSearch called but already processing, ignoring');
+      return;
+    }
     
     if (_isSearching) {
       print('UI: startSearch called but already searching, ignoring');
       return;
     }
     
+    _isProcessing = true;
     print('UI: startSearch called - checking background service');
     
-    final service = FlutterBackgroundService();
-    final isRunning = await service.isRunning();
-    
-    print('UI: Background service isRunning: $isRunning');
-    
-    if (isRunning) {
-      print('UI: Service already running, invoking startService');
-      service.invoke('startService');
-    } else {
-      print('UI: Service not running, starting service');
-      await service.startService();
-      // Add a small delay to ensure service is fully initialized
-      await Future.delayed(const Duration(milliseconds: 500));
+    try {
+      final service = FlutterBackgroundService();
+      final isRunning = await service.isRunning();
+      
+      print('UI: Background service isRunning: $isRunning');
+      
+      if (isRunning) {
+        print('UI: Service already running, invoking startService');
+        service.invoke('startService');
+      } else {
+        print('UI: Service not running, starting service');
+        await service.startService();
+        // Add a longer delay to ensure service is fully initialized
+        await Future.delayed(const Duration(milliseconds: 2000));
+      }
+      
+      // Set searching state immediately to prevent double starts
+      _isSearching = true;
+      _hasCoverage = false; // Reset coverage state for new search
+      
+      // No timeout - search should continue until coverage is found
+      
+      notifyListeners();
+      print('UI: Starting search - state set to searching - isSearching: $_isSearching, hasCoverage: $_hasCoverage');
+      print('UI: ===== START SEARCH COMPLETE =====');
+    } catch (e) {
+      print('UI: Error in startSearch: $e');
+      _isSearching = false;
+      _hasCoverage = false;
+      notifyListeners();
+    } finally {
+      _isProcessing = false;
     }
-    
-    // Set searching state immediately to prevent double starts
-    _isSearching = true;
-    _hasCoverage = false; // Reset coverage state for new search
-    notifyListeners();
-    print('UI: Starting search - state set to searching - isSearching: $_isSearching, hasCoverage: $_hasCoverage');
-    print('UI: ===== START SEARCH COMPLETE =====');
   }
   
   Future<void> stopSearch() async {
@@ -109,6 +132,8 @@ class MainViewModel extends ChangeNotifier {
       print('stopSearch called but nothing to stop, ignoring');
       return;
     }
+
+    // No timeout to cancel - search continues until coverage found
 
     final service = FlutterBackgroundService();
     service.invoke('stopService');
@@ -120,6 +145,7 @@ class MainViewModel extends ChangeNotifier {
     _isSearching = false;
     _hasCoverage = false;
     _isPaused = false;
+    _isProcessing = false; // Reset processing flag
     notifyListeners();
 
     print('Stopping search - state reset');
