@@ -59,4 +59,26 @@ class MainActivity: FlutterActivity() {
                    }
                }
     }
+    
+    override fun onDestroy() {
+        println("MainActivity: onDestroy called - emergency stopping all notifications and sound")
+        // Emergency stop all sound and vibration when app is destroyed
+        NotificationHelper.emergencyStop()
+        notificationHelper.cancelNotification()
+        super.onDestroy()
+    }
+    
+    override fun onStop() {
+        println("MainActivity: onStop called - stopping all notifications and sound")
+        // Also stop when app goes to background
+        notificationHelper.cancelNotification()
+        super.onStop()
+    }
+    
+    override fun onPause() {
+        println("MainActivity: onPause called - stopping all notifications and sound")
+        // Stop when app is paused
+        notificationHelper.cancelNotification()
+        super.onPause()
+    }
 }

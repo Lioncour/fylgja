@@ -223,12 +223,32 @@ class BackgroundService {
     _wasConnected = false;
     _isPaused = false;
     _coverageAlreadyFound = false; // Reset coverage found flag
+    _pauseStartTime = null;
+    _pauseDurationMinutes = 0;
     _monitoringTimer?.cancel();
+    _monitoringTimer = null;
     _pauseTimer?.cancel();
+    _pauseTimer = null;
     _initialCheckTimer?.cancel();
+    _initialCheckTimer = null;
     print('Background service: Monitoring stopped and timers cancelled');
     // Note: NativeNotificationService can't be called from background isolate
     // The UI will handle the notification when it receives the 'stopService' event
+  }
+  
+  static void _cleanupOnServiceTermination() {
+    print('Background service: Service terminating - cleaning up all resources');
+    
+    // Stop all monitoring
+    _stopMonitoring();
+    
+    // Force stop all sound and vibration
+    try {
+      // This will be handled by the native side when the service is terminated
+      print('Background service: Requesting native cleanup');
+    } catch (e) {
+      print('Background service: Error during cleanup: $e');
+    }
   }
   
   static void _pauseService(int duration, ServiceInstance service) {

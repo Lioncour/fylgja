@@ -27,6 +27,48 @@ class NotificationHelper(private val context: Context) {
         
         // Static reference to current MediaPlayer for stopping continuous sound
         private var currentMediaPlayer: MediaPlayer? = null
+        
+        // Static method to force stop all sound and vibration
+        fun forceStopAll() {
+            println("NotificationHelper: forceStopAll called")
+            currentMediaPlayer?.let { mediaPlayer ->
+                try {
+                    if (mediaPlayer.isPlaying) {
+                        mediaPlayer.stop()
+                    }
+                    mediaPlayer.release()
+                    println("NotificationHelper: Force stopped continuous sound")
+                } catch (e: Exception) {
+                    println("NotificationHelper: Error force stopping sound: ${e.message}")
+                }
+            }
+            currentMediaPlayer = null
+        }
+        
+        // More aggressive cleanup for app termination
+        fun emergencyStop() {
+            println("NotificationHelper: emergencyStop called")
+            try {
+                currentMediaPlayer?.let { mediaPlayer ->
+                    try {
+                        if (mediaPlayer.isPlaying) {
+                            mediaPlayer.stop()
+                        }
+                    } catch (e: Exception) {
+                        println("NotificationHelper: Error stopping mediaPlayer: ${e.message}")
+                    }
+                    try {
+                        mediaPlayer.release()
+                    } catch (e: Exception) {
+                        println("NotificationHelper: Error releasing mediaPlayer: ${e.message}")
+                    }
+                }
+            } catch (e: Exception) {
+                println("NotificationHelper: Error in emergencyStop: ${e.message}")
+            } finally {
+                currentMediaPlayer = null
+            }
+        }
     }
 
     init {
@@ -237,5 +279,6 @@ class NotificationHelper(private val context: Context) {
             println("NotificationHelper: Coverage notification cancelled")
         }
     }
+    
 
 }
