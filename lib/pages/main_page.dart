@@ -99,10 +99,10 @@ class _MainPageState extends State<MainPage> with TickerProviderStateMixin {
                       ),
                     ),
                     
-                    // Top right info button - positioned 80pt from top, 40pt from right
+                    // Top right info button - positioned 60pt from top, 40pt from right
                     // About button
                     Positioned(
-                      top: 80,
+                      top: 60,
                       right: 40,
                       child: GestureDetector(
                         onTap: () {
@@ -220,7 +220,7 @@ class _MainPageState extends State<MainPage> with TickerProviderStateMixin {
           ),
           const SizedBox(height: 32),
           Container(
-            width: double.infinity,
+            width: MediaQuery.of(context).size.width * 0.4, // 40% width
             margin: const EdgeInsets.symmetric(horizontal: 0),
             child: ElevatedButton(
               onPressed: viewModel.isSearching ? viewModel.stopSearch : viewModel.startSearch,

@@ -24,6 +24,9 @@ class NotificationHelper(private val context: Context) {
         private const val CHANNEL_NAME = "Coverage Alerts"
         private const val CHANNEL_DESCRIPTION = "Notifications for when Fylgja finds network coverage."
         private const val NOTIFICATION_ID = 999
+        
+        // Static reference to current MediaPlayer for stopping continuous sound
+        private var currentMediaPlayer: MediaPlayer? = null
     }
 
     init {
@@ -80,10 +83,13 @@ class NotificationHelper(private val context: Context) {
         // Cancel any existing vibration first
         cancelVibration()
         
-        // FORCE SOUND FIRST
+        // FORCE SOUND FIRST - Play pip pip sound continuously
         try {
+            // Stop any existing sound first
+            currentMediaPlayer?.release()
+            
             val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-            val mediaPlayer = MediaPlayer().apply {
+            currentMediaPlayer = MediaPlayer().apply {
                 setDataSource(context, soundUri)
                 setAudioAttributes(
                     AudioAttributes.Builder()
@@ -93,9 +99,18 @@ class NotificationHelper(private val context: Context) {
                 )
                 prepare()
                 start()
-                setOnCompletionListener { release() }
+                setOnCompletionListener { 
+                    // Restart the sound to create pip pip effect
+                    try {
+                        start()
+                    } catch (e: Exception) {
+                        println("NotificationHelper: Sound restart error: ${e.message}")
+                        release()
+                        currentMediaPlayer = null
+                    }
+                }
             }
-            println("NotificationHelper: Sound played directly with MediaPlayer")
+            println("NotificationHelper: Sound played continuously with MediaPlayer")
         } catch (e: Exception) {
             println("NotificationHelper: Direct sound error: ${e.message}")
         }
@@ -203,6 +218,18 @@ class NotificationHelper(private val context: Context) {
         
         // Stop vibration first
         cancelVibration()
+        
+        // Stop continuous sound
+        currentMediaPlayer?.let { mediaPlayer ->
+            try {
+                mediaPlayer.stop()
+                mediaPlayer.release()
+                println("NotificationHelper: Continuous sound stopped")
+            } catch (e: Exception) {
+                println("NotificationHelper: Error stopping sound: ${e.message}")
+            }
+        }
+        currentMediaPlayer = null
         
         // Cancel notification
         with(NotificationManagerCompat.from(context)) {
