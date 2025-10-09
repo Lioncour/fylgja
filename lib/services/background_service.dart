@@ -11,6 +11,8 @@ class BackgroundService {
   static Timer? _pauseTimer;
   static Timer? _monitoringTimer;
   static Timer? _initialCheckTimer;
+  static DateTime? _pauseStartTime;
+  static int _pauseDurationMinutes = 0;
   
   static Future<void> initializeService() async {
     final service = FlutterBackgroundService();
@@ -68,6 +70,10 @@ class BackgroundService {
         print('Background service: Monitoring was active, ensuring it continues');
         // Force a connectivity check immediately when app resumes
         _checkConnectivity(service);
+      } else if (_isPaused) {
+        print('Background service: App resumed while paused - checking if pause should be complete');
+        // Check if pause should be complete (fallback mechanism)
+        _checkPauseStatus(service);
       }
     });
     
@@ -228,24 +234,70 @@ class BackgroundService {
   static void _pauseService(int duration, ServiceInstance service) {
     print('Background service: Pausing service for $duration minutes');
     _isPaused = true;
-    // Note: NativeNotificationService can't be called from background isolate
-    // The UI will handle the notification when it receives the 'pauseService' event
+    _pauseStartTime = DateTime.now();
+    _pauseDurationMinutes = duration;
     
     // Cancel the monitoring timer to stop checking connectivity
     _monitoringTimer?.cancel();
+    _monitoringTimer = null;
     print('Background service: Monitoring timer cancelled');
     
     // Set timer to resume monitoring after pause duration
     _pauseTimer?.cancel();
     _pauseTimer = Timer(Duration(minutes: duration), () {
+      print('Background service: Pause timer completed - resuming monitoring');
       _isPaused = false;
+      _pauseStartTime = null;
+      _pauseDurationMinutes = 0;
       // Reset connection state so we can detect new coverage
       _wasConnected = false;
+      _coverageAlreadyFound = false;
       print('Background service: Resumed from pause, reset connection state');
       
-      // Restart monitoring
-      _startMonitoring(service);
+      // Restart monitoring with background monitoring
+      _startBackgroundMonitoring(service);
+      
+      // Notify UI that pause is complete
+      service.invoke('pauseCompleted');
     });
+    
+    print('Background service: Pause timer set for $duration minutes');
+  }
+  
+  static void _checkPauseStatus(ServiceInstance service) {
+    if (!_isPaused || _pauseStartTime == null) {
+      print('Background service: Not paused or no pause start time');
+      return;
+    }
+    
+    final now = DateTime.now();
+    final pauseElapsed = now.difference(_pauseStartTime!);
+    final pauseElapsedMinutes = pauseElapsed.inMinutes;
+    
+    print('Background service: Pause elapsed: $pauseElapsedMinutes minutes, Duration: $_pauseDurationMinutes minutes');
+    
+    if (pauseElapsedMinutes >= _pauseDurationMinutes) {
+      print('Background service: Pause should be complete - resuming monitoring');
+      _isPaused = false;
+      _pauseStartTime = null;
+      _pauseDurationMinutes = 0;
+      
+      // Cancel any existing pause timer
+      _pauseTimer?.cancel();
+      _pauseTimer = null;
+      
+      // Reset connection state
+      _wasConnected = false;
+      _coverageAlreadyFound = false;
+      
+      // Restart monitoring
+      _startBackgroundMonitoring(service);
+      
+      // Notify UI that pause is complete
+      service.invoke('pauseCompleted');
+    } else {
+      print('Background service: Pause still active - ${_pauseDurationMinutes - pauseElapsedMinutes} minutes remaining');
+    }
   }
   
 }

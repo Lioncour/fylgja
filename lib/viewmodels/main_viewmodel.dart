@@ -93,6 +93,14 @@ class MainViewModel extends ChangeNotifier {
       notifyListeners();
       print('Service stopped');
     });
+    
+    service.on('pauseCompleted').listen((event) {
+      print('UI: Pause completed event received');
+      _isPaused = false;
+      _isSearching = true; // Resume searching
+      notifyListeners();
+      print('UI: Pause completed - resuming search');
+    });
   }
   
   Future<void> startSearch() async {
