@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import '../services/native_notification_service.dart';
@@ -19,12 +20,34 @@ class MainViewModel extends ChangeNotifier {
   MainViewModel() {
     _loadPauseDuration();
     _setupServiceListener();
+    _setupAppLifecycleListener();
   }
   
   Future<void> _loadPauseDuration() async {
     final prefs = await SharedPreferences.getInstance();
     _pauseDuration = prefs.getInt('pause_duration') ?? 5;
     notifyListeners();
+  }
+
+  void _setupAppLifecycleListener() {
+    SystemChannels.lifecycle.setMessageHandler((message) async {
+      print('UI: App lifecycle state changed: $message');
+      
+      if (message == AppLifecycleState.resumed.toString()) {
+        print('UI: App resumed from background/standby');
+        _handleAppResumed();
+      }
+      
+      return null;
+    });
+  }
+
+  void _handleAppResumed() {
+    if (_isSearching) {
+      print('UI: App resumed while searching - notifying background service');
+      final service = FlutterBackgroundService();
+      service.invoke('appResumed');
+    }
   }
 
   

@@ -45,6 +45,7 @@ class BackgroundService {
     // Reset coverage flag when service starts/restarts
     _coverageAlreadyFound = false;
     _wasConnected = false;
+    _isPaused = false;
     print('Background service: Service started - reset coverage flags');
     
     service.on('startService').listen((event) {
@@ -55,11 +56,45 @@ class BackgroundService {
       _stopMonitoring();
     });
     
-  service.on('pauseService').listen((event) {
-    final duration = event?['duration'] ?? 5;
-    _pauseService(duration, service);
-  });
+    service.on('pauseService').listen((event) {
+      final duration = event?['duration'] ?? 5;
+      _pauseService(duration, service);
+    });
     
+    // Handle app resume from standby - restart monitoring if it was active
+    service.on('appResumed').listen((event) {
+      print('Background service: App resumed from standby');
+      if (_monitoringTimer?.isActive == true) {
+        print('Background service: Monitoring was active, ensuring it continues');
+        // Force a connectivity check immediately when app resumes
+        _checkConnectivity(service);
+      }
+    });
+    
+    // Start monitoring timer immediately for background operation
+    _startBackgroundMonitoring(service);
+  }
+  
+  static void _startBackgroundMonitoring(ServiceInstance service) {
+    print('Background service: Starting background monitoring timer');
+    
+    // Check connectivity every 5 seconds in background (less frequent to save battery)
+    _monitoringTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
+      print('Background service: Background timer tick - checking connectivity...');
+      
+      if (_isPaused) {
+        print('Background service: Background monitoring paused');
+        return;
+      }
+      
+      await _checkConnectivity(service);
+    });
+    
+    // Initial check after a short delay
+    Timer(const Duration(milliseconds: 1000), () {
+      print('Background service: Initial background connectivity check...');
+      _checkConnectivity(service);
+    });
   }
   
   static void _startMonitoring(ServiceInstance service) {
