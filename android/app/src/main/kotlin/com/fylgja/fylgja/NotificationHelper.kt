@@ -220,6 +220,12 @@ class NotificationHelper(private val context: Context) {
         println("NotificationHelper: showNotification parameter: $showNotification")
         println("NotificationHelper: App in foreground: ${isAppInForeground()}")
         
+        // Reset isStopping flag when starting a new notification - allows new vibration to start
+        if (isStopping) {
+            println("NotificationHelper: Resetting isStopping flag to allow new vibration to start")
+            isStopping = false
+        }
+        
         // If app is in foreground, NEVER show notification regardless of parameter
         val shouldShowNotification = showNotification && !isAppInForeground()
         println("NotificationHelper: Final decision - shouldShowNotification: $shouldShowNotification")
@@ -313,8 +319,7 @@ class NotificationHelper(private val context: Context) {
         
         // NO FALLBACK - only use MediaPlayer to prevent multiple sounds
         
-        // CONTINUOUS VIBRATION - Repeating pattern until stopSound() is called
-        // Use Handler to ensure vibration continues even in standby mode
+        // CONTINUOUS VIBRATION - Use NON-REPEATING pattern with Handler restart for better control
         // Only start new vibration if not already vibrating AND not in the process of stopping
         if (isStopping) {
             println("NotificationHelper: ⚠️ WARNING - isStopping is true, NOT starting vibration (prevented restart after stop)")
@@ -322,7 +327,7 @@ class NotificationHelper(private val context: Context) {
         }
         
         if (!shouldVibrate) {
-            println("NotificationHelper: Starting new continuous vibration")
+            println("NotificationHelper: Starting new continuous vibration with Handler-based restart")
             shouldVibrate = true
             vibrationHandler = Handler(Looper.getMainLooper())
         } else {
@@ -330,17 +335,48 @@ class NotificationHelper(private val context: Context) {
             return // Don't start new vibration if already running
         }
         
+        // Get vibrator instance once
+        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+            vibratorManager.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        }
+        
+        if (!vibrator.hasVibrator()) {
+            println("NotificationHelper: Vibrator not available")
+            shouldVibrate = false
+            vibrationHandler = null
+            return
+        }
+        
+        // Create a NON-REPEATING vibration pattern (repeat index -1 means don't repeat)
+        // We'll restart it manually via Handler for better control
+        // Pattern: vibrate 2000ms, pause 100ms, vibrate 2000ms, pause 100ms, vibrate 2000ms = 6200ms total
+        // This creates a much more continuous feeling - 6 seconds of vibration with only 0.2s of pauses
+        val vibrationPattern = longArrayOf(0, 2000, 100, 2000, 100, 2000) // Total: 6200ms (6s vibration, 0.2s pause)
+        val vibrationDuration = vibrationPattern.sum() // Total duration of one cycle
+        println("NotificationHelper: Vibration pattern: ${vibrationPattern.contentToString()}, total duration: ${vibrationDuration}ms (${vibrationDuration/1000.0}s) - ${(vibrationDuration-200)/1000.0}s vibration, 0.2s pause")
+        
         vibrationRunnable = object : Runnable {
             override fun run() {
-                println("NotificationHelper: ===== VIBRATION RUNNABLE EXECUTED =====")
-                println("NotificationHelper: Timestamp: ${System.currentTimeMillis()}")
-                println("NotificationHelper: shouldVibrate flag: $shouldVibrate")
+                val timestamp = System.currentTimeMillis()
+                println("NotificationHelper: ===== VIBRATION RUNNABLE EXECUTED ===== (Timestamp: $timestamp)")
                 
-                // Check flag FIRST before doing anything
-                if (!shouldVibrate) {
-                    println("NotificationHelper: Vibration stopped - shouldVibrate is false, exiting runnable")
-                    return
+                // CRITICAL: Check flags FIRST before doing ANYTHING - must be the very first check
+                // Read flags into local variables to ensure we check the current state
+                val shouldVibrateNow = shouldVibrate
+                val isStoppingNow = isStopping
+                
+                println("NotificationHelper: Flag check - shouldVibrate: $shouldVibrateNow, isStopping: $isStoppingNow")
+                
+                if (!shouldVibrateNow || isStoppingNow) {
+                    println("NotificationHelper: ✅✅✅ VIBRATION STOPPED - shouldVibrate: $shouldVibrateNow, isStopping: $isStoppingNow, EXITING RUNNABLE IMMEDIATELY (stop worked!)")
+                    return // Exit immediately - don't do anything else
                 }
+                
+                println("NotificationHelper: Flags OK, proceeding with vibration")
                 
                 // Double-check handler still exists
                 val currentHandler = vibrationHandler
@@ -351,54 +387,53 @@ class NotificationHelper(private val context: Context) {
                 }
                 
                 try {
-                    val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
-                        vibratorManager.defaultVibrator
+                    // DON'T cancel existing vibration - let it finish naturally, then start new one
+                    // Only cancel if we're actually stopping (which is checked by flags above)
+                    // This prevents interrupting the current vibration pattern
+                    
+                    // Use NON-REPEATING pattern (repeat index -1) with amplitude for stronger vibration
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        // Create amplitude array - use maximum amplitude (255) for all vibration segments
+                        // Pattern: [0, 2000, 100, 2000, 100, 2000] = 6 elements
+                        // Amplitudes: [0, 255, 0, 255, 0, 255] = 6 elements (must match!)
+                        val amplitudes = intArrayOf(0, 255, 0, 255, 0, 255) // Max amplitude for vibration, 0 for pauses
+                        val vibrationEffect = VibrationEffect.createWaveform(vibrationPattern, amplitudes, -1) // -1 = don't repeat
+                        println("NotificationHelper: Creating NON-REPEATING vibration effect with MAX amplitude (255) - will restart via Handler")
+                        println("NotificationHelper: Pattern length: ${vibrationPattern.size}, Amplitude length: ${amplitudes.size}")
+                        vibrator.vibrate(vibrationEffect)
+                        println("NotificationHelper: ✅ Vibration triggered with MAX amplitude (non-repeating, will restart in ${vibrationDuration}ms)")
                     } else {
                         @Suppress("DEPRECATION")
-                        context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+                        // For older Android, use non-repeating pattern (no repeat parameter = don't repeat)
+                        vibrator.vibrate(vibrationPattern, -1) // -1 = don't repeat
+                        println("NotificationHelper: Vibration triggered (legacy, non-repeating, will restart in ${vibrationDuration}ms)")
                     }
                     
-                    // Check if vibrator is available and flag is still true
-                    println("NotificationHelper: Checking vibrator - hasVibrator: ${vibrator.hasVibrator()}, shouldVibrate: $shouldVibrate")
-                    if (vibrator.hasVibrator() && shouldVibrate) {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            // Strong, continuous vibration pattern - vibrate 800ms, pause 300ms, repeat
-                            // This creates a noticeable, continuous vibration
-                            val vibrationPattern = longArrayOf(0, 800, 300, 800, 300, 800, 300, 800)
-                            val vibrationEffect = VibrationEffect.createWaveform(vibrationPattern, 0) // 0 = repeat from start indefinitely
-                            println("NotificationHelper: Creating vibration effect with pattern: ${vibrationPattern.contentToString()}, repeat index: 0")
-                            vibrator.vibrate(vibrationEffect)
-                            println("NotificationHelper: Continuous vibration triggered (repeating pattern) - pattern will repeat indefinitely")
-                        } else {
-                            @Suppress("DEPRECATION")
-                            // For older Android, use repeating pattern
-                            println("NotificationHelper: Using legacy vibration API")
-                            vibrator.vibrate(longArrayOf(0, 800, 300, 800, 300, 800, 300, 800), 0) // 0 = repeat indefinitely
-                            println("NotificationHelper: Continuous vibration triggered (legacy, repeating) - pattern will repeat indefinitely")
-                        }
-                        
-                        // Schedule next vibration restart (every 2 seconds) to ensure it continues even if pattern stops
-                        // This acts as a backup to ensure continuous vibration
-                        println("NotificationHelper: Checking if should schedule next vibration - shouldVibrate: $shouldVibrate, currentHandler: ${currentHandler != null}")
-                        if (shouldVibrate && currentHandler != null) {
-                            currentHandler.postDelayed(this, 2000)
-                            println("NotificationHelper: Scheduled next vibration restart in 2 seconds")
-                        } else {
-                            println("NotificationHelper: NOT scheduling next vibration - shouldVibrate: $shouldVibrate, currentHandler: ${currentHandler != null}")
-                        }
+                    // Schedule next vibration restart BEFORE current one ends (at 98% of duration)
+                    // This ensures continuous vibration without gaps - restart just before pattern ends
+                    // Using 98% instead of 95% to make it feel more continuous
+                    val restartDelay = (vibrationDuration * 0.98).toLong()
+                    println("NotificationHelper: Scheduling next vibration restart in ${restartDelay}ms (98% of ${vibrationDuration}ms = ${vibrationDuration/1000.0}s duration)")
+                    
+                    // Double-check flags and handler before scheduling
+                    val shouldSchedule = shouldVibrate && !isStopping && currentHandler != null
+                    println("NotificationHelper: Scheduling check - shouldVibrate: $shouldVibrate, isStopping: $isStopping, handler exists: ${currentHandler != null}, shouldSchedule: $shouldSchedule")
+                    
+                    if (shouldSchedule) {
+                        currentHandler!!.postDelayed(this, restartDelay)
+                        println("NotificationHelper: ✅ Next vibration scheduled successfully - will execute in ${restartDelay}ms")
                     } else {
-                        println("NotificationHelper: Vibrator not available or shouldVibrate is false - hasVibrator: ${vibrator.hasVibrator()}, shouldVibrate: $shouldVibrate")
+                        println("NotificationHelper: ❌ NOT scheduling next vibration - shouldVibrate: $shouldVibrate, isStopping: $isStopping, handler: ${currentHandler != null}")
                     }
                 } catch (e: Exception) {
-                    println("NotificationHelper: Vibration error: ${e.message}")
+                    println("NotificationHelper: ❌ Vibration error: ${e.message}")
                     e.printStackTrace()
-                    // Retry after delay only if flag is still true and handler exists
-                    if (shouldVibrate && currentHandler != null) {
+                    // Retry after delay only if flags are still true
+                    if (shouldVibrate && !isStopping && currentHandler != null) {
                         currentHandler.postDelayed(this, 1000)
                         println("NotificationHelper: Retrying vibration after error in 1 second")
                     } else {
-                        println("NotificationHelper: Not retrying - shouldVibrate is false or handler is null")
+                        println("NotificationHelper: Not retrying - flags changed")
                     }
                 }
             }
@@ -406,7 +441,7 @@ class NotificationHelper(private val context: Context) {
         
         // Start vibration immediately
         vibrationHandler?.post(vibrationRunnable!!)
-        println("NotificationHelper: Continuous vibration handler started - vibration will continue until stopSound() is called")
+        println("NotificationHelper: ✅ Continuous vibration handler started - will restart every ~${vibrationDuration}ms until stopSound() is called")
 
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
@@ -457,15 +492,23 @@ class NotificationHelper(private val context: Context) {
     }
 
     private fun cancelVibration() {
-        println("NotificationHelper: ===== CANCEL VIBRATION CALLED =====")
-        println("NotificationHelper: Timestamp: ${System.currentTimeMillis()}")
+        val timestamp = System.currentTimeMillis()
+        println("NotificationHelper: ===== CANCEL VIBRATION CALLED ===== (Timestamp: $timestamp)")
         println("NotificationHelper: shouldVibrate BEFORE: $shouldVibrate")
+        println("NotificationHelper: isStopping BEFORE: $isStopping")
         println("NotificationHelper: vibrationHandler BEFORE: ${vibrationHandler != null}")
         println("NotificationHelper: vibrationRunnable BEFORE: ${vibrationRunnable != null}")
         
-        // CRITICAL: Set flag FIRST to stop runnable from rescheduling
+        // CRITICAL: Set flags FIRST and SYNCHRONOUSLY to stop runnable from rescheduling
+        // Use synchronized block or ensure atomic flag setting
         shouldVibrate = false
-        println("NotificationHelper: Set shouldVibrate = false")
+        isStopping = true // Also set isStopping to prevent any restart
+        println("NotificationHelper: ✅ Set shouldVibrate = false and isStopping = true (flags set synchronously)")
+        
+        // Give a tiny delay to ensure flags are visible to other threads
+        // This is a safety measure - the @Volatile annotation should handle this, but this ensures it
+        Thread.sleep(1) // 1ms delay to ensure flags propagate
+        println("NotificationHelper: Flags propagated, any executing runnable should now see them")
         
         // CRITICAL: Get references BEFORE nulling, and remove callbacks BEFORE nulling
         val handlerToStop = vibrationHandler

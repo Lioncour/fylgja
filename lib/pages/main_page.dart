@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:package_info_plus/package_info_plus.dart';
 import 'package:intl/intl.dart';
 import '../viewmodels/main_viewmodel.dart';
 import '../theme/app_theme.dart';
@@ -169,35 +168,6 @@ class _MainPageState extends State<MainPage> with TickerProviderStateMixin {
                           label: _getStatusSemanticLabel(viewModel.state),
                           child: _buildStatusIndicator(viewModel),
                         ),
-                      ),
-                    ),
-
-                    // Top left version number
-                    Positioned(
-                      top: 60,
-                      left: 40,
-                      child: FutureBuilder<PackageInfo>(
-                        future: PackageInfo.fromPlatform(),
-                        builder: (context, snapshot) {
-                          if (snapshot.hasData) {
-                            return Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                              decoration: BoxDecoration(
-                                color: Colors.black.withOpacity(0.4),
-                                borderRadius: BorderRadius.circular(15),
-                              ),
-                              child: Text(
-                                'v${snapshot.data!.version}+${snapshot.data!.buildNumber}',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            );
-                          }
-                          return const SizedBox.shrink();
-                        },
                       ),
                     ),
 

@@ -47,11 +47,15 @@ class AboutPage extends StatelessWidget {
         ),
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight - 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
               // Main content
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -77,7 +81,7 @@ class AboutPage extends StatelessWidget {
                 ],
               ),
               
-              const SizedBox(height: 24),
+              const SizedBox(height: 48),
               
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -107,8 +111,28 @@ class AboutPage extends StatelessWidget {
                   ),
                 ],
               ),
-            ],
-          ),
+                    
+                    const Spacer(),
+                    
+                    // Footer
+                    const Column(
+                      children: [
+                        SizedBox(height: 32),
+                        Text(
+                          'a flokroll project',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: AppTheme.secondaryText,
+                          ),
+                        ),
+                        SizedBox(height: 16),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
         ),
       ),
     );

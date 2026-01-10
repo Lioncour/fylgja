@@ -52,15 +52,11 @@ class SettingsPage extends StatelessWidget {
         ),
       ),
       body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            return SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: constraints.maxHeight - 24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
               // Pause duration setting
               Consumer<MainViewModel>(
                 builder: (context, viewModel, child) {
@@ -84,30 +80,30 @@ class SettingsPage extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 16),
-                          Slider(
-                            value: viewModel.pauseDuration.toDouble(),
-                            min: 1,
-                            max: 120,
-                            divisions: 23,
-                            activeColor: AppTheme.indicatorAndIcon,
-                            inactiveColor: AppTheme.bottomPanel,
-                            onChanged: (value) async {
-                              await HapticFeedbackUtil.selectionClick();
-                              // Round to nearest 5
-                              final roundedValue = ((value.round() / 5).round() * 5).clamp(1, 120);
-                              await viewModel.setPauseDuration(roundedValue);
-                            },
+                      Slider(
+                        value: viewModel.pauseDuration.toDouble(),
+                        min: 1,
+                        max: 120,
+                        divisions: 23,
+                        activeColor: AppTheme.indicatorAndIcon,
+                        inactiveColor: AppTheme.bottomPanel,
+                        onChanged: (value) async {
+                          await HapticFeedbackUtil.selectionClick();
+                          // Round to nearest 5
+                          final roundedValue = ((value.round() / 5).round() * 5).clamp(1, 120);
+                          await viewModel.setPauseDuration(roundedValue);
+                        },
+                      ),
+                      Center(
+                        child: Text(
+                          '${viewModel.pauseDuration} minutter',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.darkText,
                           ),
-                          Center(
-                            child: Text(
-                              '${viewModel.pauseDuration} minutter',
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                                color: AppTheme.darkText,
-                              ),
-                            ),
-                          ),
+                        ),
+                      ),
                     ],
                   );
                 },
@@ -229,41 +225,40 @@ class SettingsPage extends StatelessWidget {
                 },
               ),
 
-                    const Spacer(),
+              const Spacer(),
 
-                    // Build number and footer
-                    FutureBuilder<PackageInfo>(
-                      future: PackageInfo.fromPlatform(),
-                      builder: (context, snapshot) {
-                        return Column(
-                          children: [
-                            const SizedBox(height: 32),
-                            if (snapshot.hasData)
-                              Text(
-                                'Build ${snapshot.data!.buildNumber}',
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  color: AppTheme.secondaryText,
-                                ),
-                              ),
-                            const SizedBox(height: 8),
-                            const Text(
-                              'a flokroll projects',
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: AppTheme.secondaryText,
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                          ],
-                        );
-                      },
-                    ),
-                  ],
-                ),
+              // Build number and footer - always visible at bottom, centered
+              FutureBuilder<PackageInfo>(
+                future: PackageInfo.fromPlatform(),
+                builder: (context, snapshot) {
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      if (snapshot.hasData)
+                        Text(
+                          'Build ${snapshot.data!.buildNumber}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppTheme.secondaryText,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'a flokroll projects',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: AppTheme.secondaryText,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  );
+                },
               ),
-            );
-          },
+            ],
+          ),
         ),
       ),
     );
