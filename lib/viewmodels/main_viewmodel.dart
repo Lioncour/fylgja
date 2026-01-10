@@ -3,38 +3,75 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import '../services/native_notification_service.dart';
+import '../services/native_connectivity_service.dart';
+import '../services/background_service.dart';
+import '../services/coverage_history_service.dart';
+import '../models/search_state.dart';
+import '../models/coverage_event.dart';
+import '../utils/logger.dart';
+import '../utils/haptic_feedback.dart';
 
 class MainViewModel extends ChangeNotifier {
-  bool _isSearching = false;
-  bool _hasCoverage = false;
-  bool _isPaused = false;
+  // State management
+  SearchState _state = SearchState.idle;
   int _pauseDuration = 5;
-  bool _isProcessing = false; // Prevent rapid button presses
+  bool _isProcessing = false;
+  DateTime? _searchStartTime;
+  DateTime? _pauseStartTime;
+  Timer? _pauseTimer;
+  Duration? _pauseRemaining;
   
-  bool get isSearching => _isSearching;
-  bool get hasCoverage => _hasCoverage;
-  bool get isPaused => _isPaused;
+  // Connectivity monitoring
+  StreamSubscription<ConnectivityResult>? _connectivitySubscription;
+  Timer? _connectivityTimer;
+  StreamSubscription? _serviceStartedSubscription;
+  StreamSubscription? _coverageFoundSubscription;
+  StreamSubscription? _coverageLostSubscription;
+  StreamSubscription? _serviceStoppedSubscription;
+  StreamSubscription? _pauseCompletedSubscription;
+  
+  // Error handling
+  String? _errorMessage;
+  
+  // Getters
+  SearchState get state => _state;
+  bool get isSearching => _state == SearchState.searching;
+  bool get hasCoverage => _state == SearchState.coverageFound;
+  bool get isPaused => _state == SearchState.paused;
   int get pauseDuration => _pauseDuration;
+  bool get isProcessing => _isProcessing;
+  String? get errorMessage => _errorMessage;
+  DateTime? get searchStartTime => _searchStartTime;
+  DateTime? get pauseStartTime => _pauseStartTime;
+  Duration? get pauseRemaining => _pauseRemaining;
   
   MainViewModel() {
     _loadPauseDuration();
     _setupServiceListener();
     _setupAppLifecycleListener();
+    AppLogger.info('MainViewModel initialized');
   }
   
   Future<void> _loadPauseDuration() async {
-    final prefs = await SharedPreferences.getInstance();
-    _pauseDuration = prefs.getInt('pause_duration') ?? 5;
-    notifyListeners();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _pauseDuration = prefs.getInt('pause_duration') ?? 5;
+      notifyListeners();
+      AppLogger.debug('Pause duration loaded: $_pauseDuration minutes');
+    } catch (e) {
+      AppLogger.error('Error loading pause duration', e);
+      _setError('Kunne ikke laste inn innstillinger');
+    }
   }
 
   void _setupAppLifecycleListener() {
     SystemChannels.lifecycle.setMessageHandler((message) async {
-      print('UI: App lifecycle state changed: $message');
+      AppLogger.debug('App lifecycle state changed: $message');
       
       if (message == AppLifecycleState.resumed.toString()) {
-        print('UI: App resumed from background/standby');
+        AppLogger.info('App resumed from background/standby');
         _handleAppResumed();
       }
       
@@ -43,194 +80,474 @@ class MainViewModel extends ChangeNotifier {
   }
 
   void _handleAppResumed() {
-    if (_isSearching) {
-      print('UI: App resumed while searching - notifying background service');
-      final service = FlutterBackgroundService();
-      service.invoke('appResumed');
+    if (_state == SearchState.searching) {
+      AppLogger.info('App resumed while searching - notifying background service');
+      try {
+        final service = FlutterBackgroundService();
+        service.invoke('appResumed');
+      } catch (e) {
+        AppLogger.error('Error notifying background service', e);
+      }
     }
   }
 
-  
   void _setupServiceListener() {
-    final service = FlutterBackgroundService();
-    
-    // Listen for service events
-    service.on('serviceStarted').listen((event) {
-      print('UI: Service started event received');
-      _isSearching = true;
-      _hasCoverage = false;
-      notifyListeners();
-      print('UI: Service started - isSearching: $_isSearching, hasCoverage: $_hasCoverage');
-    });
-    
-    service.on('coverageFound').listen((event) {
-      print('UI: Coverage found event received');
-      _hasCoverage = true;
-      _isSearching = false;
-      _isProcessing = false; // Reset processing flag
-      notifyListeners();
-      print('UI: Coverage found - isSearching: $_isSearching, hasCoverage: $_hasCoverage');
+    try {
+      final service = FlutterBackgroundService();
       
-      // Trigger the EXTREME notification (sound + vibration)
-      NativeNotificationService.showCoverageNotification();
-    });
+      // Listen for service events
+      _serviceStartedSubscription = service.on('serviceStarted').listen((event) {
+        AppLogger.info('Service started event received');
+        _setState(SearchState.searching);
+      });
     
-    service.on('coverageLost').listen((event) {
-      print('UI: Coverage lost event received');
-      _hasCoverage = false;
-      _isSearching = true;
-      notifyListeners();
-      print('UI: Coverage lost - isSearching: $_isSearching, hasCoverage: $_hasCoverage');
+      _coverageFoundSubscription = service.on('coverageFound').listen((event) {
+        AppLogger.info('Coverage found event received');
+        _handleCoverageFound();
+      });
+    
+      _coverageLostSubscription = service.on('coverageLost').listen((event) {
+        AppLogger.info('Coverage lost event received');
+        if (_state != SearchState.paused) {
+          _setState(SearchState.searching);
+        }
+        NativeNotificationService.cancelNotification();
+      });
+    
+      _serviceStoppedSubscription = service.on('serviceStopped').listen((event) {
+        _setState(SearchState.idle);
+        _isProcessing = false;
+        AppLogger.info('Service stopped');
+      });
+    
+      _pauseCompletedSubscription = service.on('pauseCompleted').listen((event) {
+        AppLogger.info('Pause completed event received');
+        _resumeFromPause();
+      });
+    } catch (e) {
+      AppLogger.error('Error setting up service listener', e);
+      _setError('Kunne ikke koble til bakgrunnstjeneste');
+    }
+  }
+  
+  void _setState(SearchState newState) {
+    if (_state != newState) {
+      final oldState = _state;
+      _state = newState;
       
-      // Cancel any ongoing notifications
-      NativeNotificationService.cancelNotification();
-    });
-    
-    service.on('serviceStopped').listen((event) {
-      _isSearching = false;
-      _hasCoverage = false;
-      _isProcessing = false; // Reset processing flag
+      // Update search start time
+      if (newState == SearchState.searching && oldState != SearchState.searching) {
+        _searchStartTime = DateTime.now();
+      } else if (newState == SearchState.idle) {
+        _searchStartTime = null;
+      }
+      
       notifyListeners();
-      print('Service stopped');
-    });
-    
-    service.on('pauseCompleted').listen((event) {
-      print('UI: Pause completed event received');
-      _isPaused = false;
-      _isSearching = true; // Resume searching
-      notifyListeners();
-      print('UI: Pause completed - resuming search');
-    });
+      AppLogger.debug('State changed: $oldState -> $newState');
+    }
+  }
+  
+  void _setError(String? message) {
+    _errorMessage = message;
+    notifyListeners();
+    if (message != null) {
+      AppLogger.warning('Error set: $message');
+    }
+  }
+  
+  void clearError() {
+    _setError(null);
   }
   
   Future<void> startSearch() async {
-    print('UI: ===== START SEARCH CALLED =====');
-    print('UI: Current state - isSearching: $_isSearching, hasCoverage: $_hasCoverage, isProcessing: $_isProcessing');
+    AppLogger.info('===== START SEARCH CALLED =====');
     
     // Prevent rapid button presses
     if (_isProcessing) {
-      print('UI: startSearch called but already processing, ignoring');
+      AppLogger.warning('startSearch called but already processing, ignoring');
       return;
     }
     
-    if (_isSearching) {
-      print('UI: startSearch called but already searching, ignoring');
+    if (!_state.canStart) {
+      AppLogger.warning('startSearch called but state does not allow starting: $_state');
       return;
     }
     
     _isProcessing = true;
-    print('UI: startSearch called - checking background service');
+    _setError(null);
+    notifyListeners();
     
     try {
-      final service = FlutterBackgroundService();
-      final isRunning = await service.isRunning();
+      AppLogger.info('Starting search with both background service and direct monitoring');
       
-      print('UI: Background service isRunning: $isRunning');
+      // Set searching state
+      _setState(SearchState.searching);
+      _searchStartTime = DateTime.now();
       
-      if (isRunning) {
-        print('UI: Service already running, invoking startService');
-        service.invoke('startService');
-      } else {
-        print('UI: Service not running, starting service');
-        await service.startService();
-        // Add a longer delay to ensure service is fully initialized
-        await Future.delayed(const Duration(milliseconds: 2000));
+      // Start NATIVE Android service for standby mode
+      try {
+        await NativeConnectivityService.startMonitoring();
+        AppLogger.info('Native service started successfully');
+      } catch (e) {
+        AppLogger.error('Error starting native service', e);
+        _setError('Kunne ikke starte overvåking. Sjekk app-tillatelser.');
       }
       
-      // Set searching state immediately to prevent double starts
-      _isSearching = true;
-      _hasCoverage = false; // Reset coverage state for new search
+      // Also keep old service for compatibility
+      try {
+        final service = FlutterBackgroundService();
+        final isRunning = await service.isRunning();
+        AppLogger.debug('Flutter background service isRunning: $isRunning');
+        
+        if (isRunning) {
+          service.invoke('startSearch');
+          AppLogger.info('Flutter background service invoked');
+        }
+      } catch (e) {
+        AppLogger.error('Error with Flutter background service', e);
+      }
       
-      // No timeout - search should continue until coverage is found
+      // Also start direct connectivity monitoring as fallback
+      await _startConnectivityMonitoring();
+      AppLogger.info('Search started successfully with both monitoring systems');
       
-      notifyListeners();
-      print('UI: Starting search - state set to searching - isSearching: $_isSearching, hasCoverage: $_hasCoverage');
-      print('UI: ===== START SEARCH COMPLETE =====');
-    } catch (e) {
-      print('UI: Error in startSearch: $e');
-      _isSearching = false;
-      _hasCoverage = false;
-      notifyListeners();
+      // Haptic feedback
+      await HapticFeedbackUtil.selectionClick();
+      
+    } catch (e, stackTrace) {
+      AppLogger.error('Error in startSearch', e, stackTrace);
+      _setState(SearchState.idle);
+      _setError('Kunne ikke starte søk. Prøv igjen.');
     } finally {
       _isProcessing = false;
+      notifyListeners();
     }
   }
   
   Future<void> stopSearch() async {
-    print('stopSearch called - isSearching: $_isSearching, hasCoverage: $_hasCoverage, isPaused: $_isPaused');
+    AppLogger.info('===== STOP SEARCH CALLED =====');
+    AppLogger.info('stopSearch called - state: $_state');
+    AppLogger.info('Timestamp: ${DateTime.now().toIso8601String()}');
 
-    if (!_isSearching && !_hasCoverage && !_isPaused) {
-      print('stopSearch called but nothing to stop, ignoring');
+    if (!_state.canStop) {
+      AppLogger.warning('stopSearch called but state does not allow stopping: $_state');
       return;
     }
 
-    // No timeout to cancel - search continues until coverage found
-
-    final service = FlutterBackgroundService();
-    service.invoke('stopService');
-
-    // Stop notifications immediately
-    await NativeNotificationService.cancelNotification();
-
-    // Reset UI state immediately
-    _isSearching = false;
-    _hasCoverage = false;
-    _isPaused = false;
-    _isProcessing = false; // Reset processing flag
+    AppLogger.info('Setting state to idle immediately to prevent modal reopening');
+    _setState(SearchState.idle);
+    _isProcessing = true;
     notifyListeners();
 
-    print('Stopping search - state reset');
+    try {
+      // Stop background service
+      try {
+        final service = FlutterBackgroundService();
+        service.invoke('stopSearch');
+      } catch (e) {
+        AppLogger.error('Error stopping background service', e);
+      }
+      
+      // Stop native service
+      try {
+        await NativeConnectivityService.stopMonitoring();
+      } catch (e) {
+        AppLogger.error('Error stopping native service', e);
+      }
+      
+      // Stop direct connectivity monitoring
+      await _stopConnectivityMonitoring();
+      
+      // Stop sound and vibration - call multiple times to ensure it stops
+      try {
+        AppLogger.info('Stopping sound and vibration - calling stopSound multiple times');
+        await NativeNotificationService.stopSound();
+        await Future.delayed(const Duration(milliseconds: 100));
+        await NativeNotificationService.stopSound();
+        await NativeNotificationService.cancelNotification();
+        await Future.delayed(const Duration(milliseconds: 100));
+        await NativeNotificationService.stopSound();
+        await Future.delayed(const Duration(milliseconds: 100));
+        await NativeNotificationService.cancelNotification(); // Extra cancel to ensure vibration stops
+        AppLogger.info('Sound and notification stopped');
+      } catch (e) {
+        AppLogger.error('Error stopping sound', e);
+      }
+      
+      // Cancel pause timer if active
+      _pauseTimer?.cancel();
+      _pauseTimer = null;
+      _pauseStartTime = null;
+      _pauseRemaining = null;
+      
+      // State already set to idle above, just ensure search time is reset
+      _searchStartTime = null;
+      AppLogger.info('Search start time reset');
+      
+      // Haptic feedback
+      await HapticFeedbackUtil.lightImpact();
+      
+    } catch (e) {
+      AppLogger.error('Error stopping search', e);
+      _setError('Kunne ikke stoppe søk. Prøv igjen.');
+    } finally {
+      _isProcessing = false;
+      notifyListeners();
+    }
   }
   
   Future<void> pauseSearch() async {
-    print('pauseSearch called - hasCoverage: $_hasCoverage, isSearching: $_isSearching, isPaused: $_isPaused');
+    AppLogger.info('pauseSearch called - state: $_state');
     
-    // Allow pausing if we have coverage OR if we're currently searching
-    if (!_hasCoverage && !_isSearching) {
-      print('Cannot pause - no coverage and not searching');
+    if (!_state.canPause) {
+      AppLogger.warning('Cannot pause - state does not allow pausing: $_state');
       return;
     }
     
-    // Cancel any ongoing notifications and vibration immediately
-    NativeNotificationService.cancelNotification();
-    
-    final service = FlutterBackgroundService();
-    service.invoke('pauseService', {'duration': _pauseDuration});
-    
-    // Set paused state
-    _hasCoverage = false;
-    _isSearching = false;
-    _isPaused = true;
-    print('Setting paused state - hasCoverage: $_hasCoverage, isSearching: $_isSearching, isPaused: $_isPaused');
+    _isProcessing = true;
     notifyListeners();
-    print('Paused state set - isPaused: $_isPaused');
     
-    // Set a timer to resume searching after pause duration
-    Timer(Duration(minutes: _pauseDuration), () {
-      if (_isPaused) {
-        _isPaused = false;
-        _isSearching = true;
-        notifyListeners();
-        
-        // Actually restart the background service
-        final service = FlutterBackgroundService();
-        service.invoke('startService');
-        
-        print('Resuming search after pause');
+    try {
+      // Stop connectivity monitoring during pause
+      await _stopConnectivityMonitoring();
+      
+      // Stop sound and vibration
+      try {
+        await NativeNotificationService.stopSound();
+        await NativeNotificationService.cancelNotification();
+      } catch (e) {
+        AppLogger.error('Error stopping sound', e);
       }
-    });
+      
+      // Set paused state
+      AppLogger.info('Setting state to paused');
+      _setState(SearchState.paused);
+      _pauseStartTime = DateTime.now();
+      _pauseRemaining = Duration(minutes: _pauseDuration);
+      AppLogger.info('State set to paused, pause duration: $_pauseDuration minutes');
+      
+      // Set a timer to resume searching after pause duration
+      _pauseTimer?.cancel();
+      _pauseTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+        if (_pauseStartTime != null && _state == SearchState.paused) {
+          final elapsed = DateTime.now().difference(_pauseStartTime!);
+          final remaining = Duration(minutes: _pauseDuration) - elapsed;
+          
+          if (remaining.isNegative || remaining.inSeconds <= 0) {
+            timer.cancel();
+            _resumeFromPause();
+          } else {
+            _pauseRemaining = remaining;
+            notifyListeners();
+          }
+        } else {
+          timer.cancel();
+        }
+      });
+      
+      // Also set a one-time timer as backup
+      Timer(Duration(minutes: _pauseDuration), () {
+        if (_state == SearchState.paused) {
+          _resumeFromPause();
+        }
+      });
+      
+      AppLogger.info('Pausing search for $_pauseDuration minutes');
+      
+      // Haptic feedback
+      await HapticFeedbackUtil.mediumImpact();
+      
+    } catch (e) {
+      AppLogger.error('Error pausing search', e);
+      _setError('Kunne ikke pause søk. Prøv igjen.');
+    } finally {
+      _isProcessing = false;
+      notifyListeners();
+    }
+  }
+  
+  Future<void> _resumeFromPause() async {
+    AppLogger.info('Resuming search after pause');
     
-    print('Pausing search for $_pauseDuration minutes');
+    _pauseTimer?.cancel();
+    _pauseTimer = null;
+    _pauseStartTime = null;
+    _pauseRemaining = null;
+    
+    _setState(SearchState.searching);
+    _searchStartTime = DateTime.now();
+    
+    // Resume NATIVE service
+    try {
+      await NativeConnectivityService.startMonitoring();
+      AppLogger.info('Native service restarted');
+    } catch (e) {
+      AppLogger.error('Error restarting native service', e);
+      _setError('Kunne ikke gjenoppta overvåking.');
+    }
+    
+    // Resume connectivity monitoring
+    await _startConnectivityMonitoring();
+    
+    // Haptic feedback
+    await HapticFeedbackUtil.selectionClick();
+  }
+  
+  void _handleCoverageFound() {
+    AppLogger.info('🎉 COVERAGE FOUND! 🎉');
+    
+    // Calculate search duration
+    Duration? searchDuration;
+    if (_searchStartTime != null) {
+      searchDuration = DateTime.now().difference(_searchStartTime!);
+    }
+    
+    // Determine connection type
+    String? connectionType;
+    // This would be better determined from the actual connectivity result
+    // For now, we'll leave it null
+    
+    // Save to history
+    if (searchDuration != null) {
+      final event = CoverageEvent(
+        timestamp: DateTime.now(),
+        connectionType: connectionType,
+        searchDuration: searchDuration,
+      );
+      CoverageHistoryService.saveEvent(event).catchError((e) {
+        AppLogger.error('Error saving coverage event to history', e);
+      });
+    }
+    
+    _setState(SearchState.coverageFound);
+    _isProcessing = false;
+    
+    // Check if app is in foreground - only show notification if in background
+    final isAppInForeground = WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+    
+    // ALWAYS cancel any existing notification first when app is in foreground
+    if (isAppInForeground) {
+      AppLogger.info('Coverage found - app is in foreground, cancelling any existing notifications');
+      _cancelNotificationAsync();
+    }
+    
+    // ALWAYS play sound and vibration when coverage is found, regardless of foreground/background
+    if (!isAppInForeground) {
+      // Show notification with sound/vibration if app is in background
+      NativeNotificationService.showCoverageNotification(showNotification: true);
+      AppLogger.info('Coverage found - notification shown with sound/vibration (app in background)');
+    } else {
+      // App is in foreground - play sound/vibration without showing notification
+      AppLogger.info('Coverage found - playing sound/vibration (app in foreground, modal will show)');
+      // Play sound/vibration without showing notification
+      NativeNotificationService.showCoverageNotification(showNotification: false);
+    }
+    
+    // Haptic feedback
+    HapticFeedbackUtil.heavyImpact();
+  }
+  
+  Future<void> _cancelNotificationAsync() async {
+    await NativeNotificationService.cancelNotification();
+    await Future.delayed(const Duration(milliseconds: 50));
+    await NativeNotificationService.cancelNotification(); // Double cancel to be sure
   }
   
   Future<void> setPauseDuration(int duration) async {
+    if (duration < 1 || duration > 120) {
+      AppLogger.warning('Invalid pause duration: $duration');
+      return;
+    }
+    
     _pauseDuration = duration;
     notifyListeners();
     
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('pause_duration', duration);
-    
-    print('Pause duration set to $duration minutes');
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('pause_duration', duration);
+      AppLogger.info('Pause duration set to $duration minutes');
+    } catch (e) {
+      AppLogger.error('Error saving pause duration', e);
+      _setError('Kunne ikke lagre innstillinger');
+    }
   }
   
+  // Connectivity monitoring implementation
+  Future<void> _startConnectivityMonitoring() async {
+    AppLogger.debug('Starting connectivity monitoring');
+    
+    // Cancel any existing monitoring
+    await _stopConnectivityMonitoring();
+    
+    // Check connectivity immediately
+    await _checkConnectivity();
+    
+    // Set up periodic connectivity checks every 2 seconds
+    _connectivityTimer = Timer.periodic(const Duration(seconds: 2), (timer) async {
+      if (_state == SearchState.searching) {
+        await _checkConnectivity();
+      } else {
+        timer.cancel();
+      }
+    });
+    
+    // Also listen to connectivity changes
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((ConnectivityResult result) {
+      if (_state == SearchState.searching) {
+        _handleConnectivityChange([result]);
+      }
+    });
+  }
+  
+  Future<void> _stopConnectivityMonitoring() async {
+    AppLogger.debug('Stopping connectivity monitoring');
+    _connectivityTimer?.cancel();
+    _connectivityTimer = null;
+    await _connectivitySubscription?.cancel();
+    _connectivitySubscription = null;
+  }
+  
+  Future<void> _checkConnectivity() async {
+    try {
+      final connectivityResult = await Connectivity().checkConnectivity();
+      _handleConnectivityChange([connectivityResult]);
+    } catch (e) {
+      AppLogger.error('Error checking connectivity', e);
+    }
+  }
+  
+  void _handleConnectivityChange(List<ConnectivityResult> results) {
+    final isConnected = results.any((result) => result != ConnectivityResult.none);
+    AppLogger.debug('Connectivity change detected - Connected: $isConnected, Results: $results');
+    
+    if (isConnected && _state == SearchState.searching) {
+      _handleCoverageFound();
+    } else if (!isConnected && _state == SearchState.coverageFound) {
+      AppLogger.info('Coverage lost - resuming search');
+      _setState(SearchState.searching);
+      NativeNotificationService.cancelNotification();
+    }
+  }
+  
+  @override
+  void dispose() {
+    AppLogger.info('Disposing MainViewModel');
+    
+    // Cancel all timers
+    _connectivityTimer?.cancel();
+    _pauseTimer?.cancel();
+    
+    // Cancel all subscriptions
+    _connectivitySubscription?.cancel();
+    _serviceStartedSubscription?.cancel();
+    _coverageFoundSubscription?.cancel();
+    _coverageLostSubscription?.cancel();
+    _serviceStoppedSubscription?.cancel();
+    _pauseCompletedSubscription?.cancel();
+    
+    // Stop monitoring
+    _stopConnectivityMonitoring();
+    
+    super.dispose();
+  }
 }

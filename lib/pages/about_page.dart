@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import '../viewmodels/main_viewmodel.dart';
+import 'package:flutter/services.dart';
 import '../theme/app_theme.dart';
+import '../utils/haptic_feedback.dart';
 
 class AboutPage extends StatelessWidget {
   const AboutPage({super.key});
@@ -9,103 +9,103 @@ class AboutPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppTheme.buttonAndAbout,
+      backgroundColor: const Color(0xFFDBC3C5),
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        systemOverlayStyle: const SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: Brightness.dark,
+          systemNavigationBarColor: Colors.transparent,
+          systemNavigationBarIconBrightness: Brightness.dark,
+        ),
+        leading: IconButton(
+          icon: Container(
+            width: 40,
+            height: 40,
+            decoration: const BoxDecoration(
+              color: AppTheme.indicatorAndIcon,
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.arrow_back,
+              color: Colors.white,
+              size: 24,
+            ),
+          ),
+          onPressed: () async {
+            await HapticFeedbackUtil.selectionClick();
+            Navigator.pop(context);
+          },
+        ),
+        title: const Text(
+          'Om Fylgja',
+          style: TextStyle(
+            color: AppTheme.primaryText,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header with icons
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              // Main content
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  GestureDetector(
-                    onTap: () => Navigator.pop(context),
-                    child: Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        color: AppTheme.indicatorAndIcon,
-                        shape: BoxShape.circle,
+                  RichText(
+                    text: const TextSpan(
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: AppTheme.primaryText,
+                        height: 1.5,
                       ),
-                      child: const Icon(
-                        Icons.arrow_back,
-                        color: Colors.white,
-                        size: 24,
-                      ),
+                      children: [
+                        TextSpan(
+                          text: 'Et fylgje',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        TextSpan(
+                          text: ', på norrønt fylgja («den som følger»), er en ånd eller vette, enten usynlig eller i form av et dyr, som ifølge nordisk folketro følger ætten eller enkeltmennesket. Passende navn :D',
+                        ),
+                      ],
                     ),
                   ),
                 ],
               ),
               
-              const SizedBox(height: 32),
-              
-              // Main content
-              const Text(
-                'Et fylgje, på norrønt fylgja («den som følger»), er en ånd eller vette, enten usynlig eller i form av et dyr, som ifølge nordisk folketro følger ætten eller enkeltmennesket. Passende navn :D',
-                style: TextStyle(
-                  fontSize: 16,
-                  color: AppTheme.primaryText,
-                  height: 1.5,
-                ),
-              ),
-              
               const SizedBox(height: 24),
               
-              const Text(
-                'Fylgja er din digitale følgesvenn i fjell og dal. Som en moderne versjon av de gamle åndene som fulgte våre forfedre, er Fylgja her for å vokte over deg på dine eventyr i naturen.\n\n'
-                'Med en blanding av norrøn visdom og smart teknologi, gir Fylgja deg varsler om værforhold, sikkerhet og kunnskap som holder deg trygg på fjellet. Appen overvåker nettverksdekning i bakgrunnen, slik at du alltid vet når du har tilgang til hjelp og informasjon.\n\n'
-                'La Fylgja være din guide gjennom storm og stille, gjennom tåke og klar himmel. Som de gamle åndene som fulgte våre forfedre, er Fylgja her for å gi deg trygghet og trygghet på dine reiser i det store utendørs.\n\n'
-                'Velkommen til en ny æra av fjellfører, hvor teknologi møter tradisjon, og hvor du aldri er alene i naturen.',
-                style: TextStyle(
-                  fontSize: 16,
-                  color: AppTheme.primaryText,
-                  height: 1.5,
-                ),
-              ),
-              
-              const SizedBox(height: 32),
-              
-              // Pause duration setting
-              Consumer<MainViewModel>(
-                builder: (context, viewModel, child) {
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Lengde på varselpause (minutter):',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: AppTheme.primaryText,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Slider(
-                        value: viewModel.pauseDuration.toDouble(),
-                        min: 1,
-                        max: 15,
-                        divisions: 14,
-                        activeColor: AppTheme.indicatorAndIcon,
-                        inactiveColor: AppTheme.notificationPanel,
-                        onChanged: (value) {
-                          viewModel.setPauseDuration(value.round());
-                        },
-                      ),
-                      Center(
-                        child: Text(
-                          '${viewModel.pauseDuration} minutter',
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                            color: AppTheme.secondaryText,
-                          ),
-                        ),
-                      ),
-                    ],
-                  );
-                },
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Fylgja, navnet hviskes på vind,\n'
+                    'En norrøn ånd, din digitale venn.\n'
+                    'På fjellet høyt, der signalet svikter,\n'
+                    'Dens kraft deg guidet, aldri forvikter.\n\n'
+                    'Værvarsler suser hvis storm er i vente,\n'
+                    'Sikkerhet trygg, fra skredfaren fremtredende.\n'
+                    'Stier og topper den åpner for deg,\n'
+                    'Fjellvett og kunnskap, din verdi så høy.\n\n'
+                    'Fylgja, følgesvennen i lommen din tett,\n'
+                    'Holder deg trygg og orientert.\n'
+                    'Med norrøn visdom og teknologi smart,\n'
+                    'Gir deg fordelen før turen din tar fart.\n\n'
+                    'Så la appen veilede, mens fjellene kaller,\n'
+                    'Eventyret venter, der friheten smaker.\n'
+                    'Med Fylgjas ånd, aldri redd eller alene,\n'
+                    'Stien er din, fjellets stemme den rene.',
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: AppTheme.primaryText,
+                      height: 1.5,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 class AppTheme {
   // Color Palette - Updated to match design specs
-  static const Color primaryBackground = Color(0xFFFFFDE7); // Light Yellow
+  static const Color primaryBackground = Color(0xFFF6EEA1); // Light Yellow
   static const Color bottomPanel = Color(0xFF4A3F55); // Dark Purple
   static const Color notificationPanel = Color(0xFFD9D5D8); // Light Gray/Purple
   static const Color buttonAndAbout = Color(0xFFF5ECEB); // Light Pink/Beige

@@ -2,6 +2,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter/services.dart';
+import '../utils/logger.dart';
 
 @pragma('vm:entry-point')
 class BackgroundService {
@@ -15,14 +17,16 @@ class BackgroundService {
   static DateTime? _pauseStartTime;
   static int _pauseDurationMinutes = 0;
   
+  static FlutterBackgroundService? _serviceInstance;
+  
   static Future<void> initializeService() async {
-    final service = FlutterBackgroundService();
+    _serviceInstance = FlutterBackgroundService();
     
-    await service.configure(
+    await _serviceInstance!.configure(
       androidConfiguration: AndroidConfiguration(
         onStart: onStart,
         autoStart: false,
-        isForegroundMode: false,
+        isForegroundMode: true,
         notificationChannelId: 'fylgja_channel',
         initialNotificationTitle: 'Fylgja ser etter dekning',
         initialNotificationContent: 'Appen kjører i bakgrunnen og overvåker nettverksdekning',
@@ -35,6 +39,25 @@ class BackgroundService {
         onBackground: onIosBackground,
       ),
     );
+    
+    AppLogger.info('Background service configuration complete');
+    AppLogger.info('Background service will start when invoked');
+  }
+  
+  static Future<void> startBackgroundService() async {
+    if (_serviceInstance != null) {
+      AppLogger.info('Attempting to start background service...');
+      try {
+        // Try to start the service by sending an event
+        // The service will auto-start if not already running
+        _serviceInstance!.invoke('startService');
+        AppLogger.info('startService event sent');
+      } catch (e) {
+        AppLogger.error('Error starting background service', e);
+      }
+    } else {
+      AppLogger.error('Background service not initialized');
+    }
   }
   
   @pragma('vm:entry-point')
@@ -49,14 +72,29 @@ class BackgroundService {
     _coverageAlreadyFound = false;
     _wasConnected = false;
     _isPaused = false;
-    print('Background service: Service started - reset coverage flags');
+    AppLogger.info('Background service started - reset coverage flags');
     
     service.on('startService').listen((event) {
       _startMonitoring(service);
     });
     
+    service.on('startSearch').listen((event) {
+      print('Background service: startSearch event received');
+      _startMonitoring(service);
+    });
+    
     service.on('stopService').listen((event) {
+      print('Background service: stopService event received');
       _stopMonitoring();
+      // Force stop any ongoing sound and vibration
+      print('Background service: Requesting immediate sound stop');
+    });
+    
+    service.on('stopSearch').listen((event) {
+      print('Background service: stopSearch event received');
+      _stopMonitoring();
+      // Force stop any ongoing sound and vibration
+      print('Background service: Requesting immediate sound stop');
     });
     
     service.on('pauseService').listen((event) {
@@ -79,18 +117,25 @@ class BackgroundService {
     });
     
     // Start monitoring timer immediately for background operation
+    print('Background service: onStart complete - starting background monitoring');
     _startBackgroundMonitoring(service);
+    
+    print('Background service: ===== SERVICE FULLY INITIALIZED =====');
+    print('Background service: Will now monitor for connectivity every 3 seconds');
+    print('Background service: This works even in standby/folded/doze mode');
   }
   
   static void _startBackgroundMonitoring(ServiceInstance service) {
-    print('Background service: Starting background monitoring timer');
+    print('Background service: ===== STARTING BACKGROUND MONITORING =====');
+    print('Background service: This timer runs independently of UI lifecycle');
+    print('Background service: Checking connectivity every 3 seconds...');
     
-    // Check connectivity every 5 seconds in background (less frequent to save battery)
-    _monitoringTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
-      print('Background service: Background timer tick - checking connectivity...');
+    // Check connectivity every 3 seconds in background for better standby mode detection
+    _monitoringTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
+      print('Background service: ⏰ Timer tick - checking connectivity...');
       
       if (_isPaused) {
-        print('Background service: Background monitoring paused');
+        print('Background service: ⏸️ Monitoring paused, skipping check');
         return;
       }
       
@@ -98,10 +143,13 @@ class BackgroundService {
     });
     
     // Initial check after a short delay
+    print('Background service: Scheduling initial check in 1 second...');
     Timer(const Duration(milliseconds: 1000), () {
-      print('Background service: Initial background connectivity check...');
+      print('Background service: 🔍 Initial background connectivity check...');
       _checkConnectivity(service);
     });
+    
+    print('Background service: ✅ Background monitoring started');
   }
   
   static void _startMonitoring(ServiceInstance service) {
@@ -185,8 +233,10 @@ class BackgroundService {
   static Future<void> _checkConnectivity(ServiceInstance service) async {
     try {
       print('Background service: ===== CONNECTIVITY CHECK START =====');
+      print('Background service: Timestamp: ${DateTime.now().toIso8601String()}');
       print('Background service: Monitoring timer active: ${_monitoringTimer?.isActive ?? false}');
       print('Background service: Was connected: $_wasConnected, Coverage already found: $_coverageAlreadyFound');
+      print('Background service: Is paused: $_isPaused');
       
       // Check if monitoring is still active before proceeding
       if (_monitoringTimer == null || !_monitoringTimer!.isActive) {
@@ -194,27 +244,73 @@ class BackgroundService {
         return;
       }
       
+      if (_isPaused) {
+        print('Background service: Service is paused, skipping connectivity check');
+        return;
+      }
+      
       print('Background service: Starting connectivity check...');
+      print('Background service: This check runs every 2-3 seconds in background');
+      print('Background service: This is critical for Doze Mode and App Standby bypass');
+      
       final connectivityResult = await Connectivity().checkConnectivity();
       final isConnected = connectivityResult != ConnectivityResult.none;
       
-      print('Background service: Connectivity check - Connected: $isConnected, WasConnected: $_wasConnected, Result: $connectivityResult');
-      print('Background service: Detailed result: ${connectivityResult.toString()}');
+      print('Background service: Connectivity check completed');
+      print('Background service: Connected: $isConnected');
+      print('Background service: WasConnected: $_wasConnected');
+      print('Background service: Result: $connectivityResult');
+      print('Background service: Coverage already found: $_coverageAlreadyFound');
       
       // ALWAYS trigger coverage if we're connected, but only once per search session
       if (isConnected && !_coverageAlreadyFound) {
-        print('Background service: 🎉 CONNECTED! Triggering coverage...');
+        print('Background service: 🎉🎉🎉 CONNECTED! Triggering coverage...');
+        print('Background service: This means WiFi or mobile data is available');
+        print('Background service: Updating foreground notification with ALERT...');
+        
         _wasConnected = true;
         _coverageAlreadyFound = true; // Prevent duplicate events
-        service.invoke('coverageFound');
-        print('Background service: Coverage found event sent to UI');
+        
+        // CRITICAL: Trigger notification via platform channel
+        // This should work even in standby because the service sends the broadcast
+        print('Background service: ===== COVERAGE DETECTED - ATTEMPTING TO ALERT =====');
+        print('Background service: Timestamp: ${DateTime.now().toIso8601String()}');
+        print('Background service: Status - wasConnected: $_wasConnected, coverageAlreadyFound: $_coverageAlreadyFound');
+        
+        // METHOD 1: Try platform channel (won't work in deep sleep)
+        print('Background service: METHOD 1 - Trying MethodChannel...');
+        try {
+          const platform = MethodChannel('fylgja/notifications');
+          await platform.invokeMethod('sendCoverageAlert');
+          print('Background service: ✅ SUCCESS: MethodChannel worked');
+        } catch (e) {
+          print('Background service: ❌ FAILED: MethodChannel error: $e');
+          print('Background service: This is expected in deep sleep mode');
+        }
+        
+        // METHOD 2: Always send to UI (will trigger when UI wakes up)
+        print('Background service: METHOD 2 - Sending event to UI...');
+        try {
+          service.invoke('coverageFound');
+          print('Background service: ✅ coverageFound event sent to UI');
+        } catch (e) {
+          print('Background service: ❌ Error sending event to UI: $e');
+        }
+        
+        print('Background service: ===== ALERT ATTEMPT COMPLETE =====');
         return;
+        
       } else if (isConnected && _coverageAlreadyFound) {
         print('Background service: Already connected and coverage already found - no duplicate event');
+        print('Background service: This prevents multiple notifications for the same coverage');
         return;
+        
       } else {
         print('Background service: Not connected - result: $connectivityResult');
+        print('Background service: Continuing to monitor for connectivity...');
+        
         if (_wasConnected) {
+          print('Background service: Was connected but now disconnected - sending coverage lost event');
           _wasConnected = false;
           _coverageAlreadyFound = false; // Reset for next search
           service.invoke('coverageLost');
@@ -223,14 +319,17 @@ class BackgroundService {
       }
       
       print('Background service: ===== CONNECTIVITY CHECK END =====');
+      
     } catch (e) {
-      print('Background service: ERROR in connectivity check: $e');
+      print('Background service: ❌ ERROR in connectivity check: $e');
       print('Background service: Stack trace: ${StackTrace.current}');
+      print('Background service: This error might indicate Doze Mode interference');
       
       // If there's an error, try to reset state and continue
       print('Background service: Attempting to recover from error...');
       _wasConnected = false;
       _coverageAlreadyFound = false;
+      print('Background service: State reset - will continue monitoring');
     }
   }
   
@@ -252,20 +351,6 @@ class BackgroundService {
     // The UI will handle the notification when it receives the 'stopService' event
   }
   
-  static void _cleanupOnServiceTermination() {
-    print('Background service: Service terminating - cleaning up all resources');
-    
-    // Stop all monitoring
-    _stopMonitoring();
-    
-    // Force stop all sound and vibration
-    try {
-      // This will be handled by the native side when the service is terminated
-      print('Background service: Requesting native cleanup');
-    } catch (e) {
-      print('Background service: Error during cleanup: $e');
-    }
-  }
   
   static void _pauseService(int duration, ServiceInstance service) {
     print('Background service: Pausing service for $duration minutes');
@@ -277,6 +362,11 @@ class BackgroundService {
     _monitoringTimer?.cancel();
     _monitoringTimer = null;
     print('Background service: Monitoring timer cancelled');
+    
+    // Stop any ongoing sound and vibration when pausing
+    print('Background service: Stopping sound and vibration for pause');
+    // Note: We can't call native methods directly from background service
+    // The UI will handle stopping sound when it receives the pause event
     
     // Set timer to resume monitoring after pause duration
     _pauseTimer?.cancel();

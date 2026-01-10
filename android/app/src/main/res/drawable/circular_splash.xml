@@ -7,8 +7,17 @@
         </shape>
     </item>
     <item android:gravity="center">
+        <shape android:shape="oval">
+            <size android:width="160dp" android:height="160dp" />
+            <solid android:color="@android:color/transparent" />
+        </shape>
+    </item>
+    <item android:gravity="center">
         <bitmap
             android:gravity="center"
-            android:src="@drawable/searchlogo" />
+            android:src="@drawable/searchlogo"
+            android:width="160dp"
+            android:height="160dp"
+            android:scaleType="centerInside" />
     </item>
 </layer-list>
