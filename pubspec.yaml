@@ -2,7 +2,7 @@ name: fylgja
 description: A Flutter app for monitoring network connectivity in the background
 publish_to: 'none'
 
-version: 1.0.24+67
+version: 1.0.24+69
 
 environment:
   sdk: '>=3.0.0 <4.0.0'

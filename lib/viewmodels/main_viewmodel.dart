@@ -425,12 +425,6 @@ class MainViewModel extends ChangeNotifier {
     // Check if app is in foreground - only show notification if in background
     final isAppInForeground = WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
     
-    // ALWAYS cancel any existing notification first when app is in foreground
-    if (isAppInForeground) {
-      AppLogger.info('Coverage found - app is in foreground, cancelling any existing notifications');
-      _cancelNotificationAsync();
-    }
-    
     // ALWAYS play sound and vibration when coverage is found, regardless of foreground/background
     if (!isAppInForeground) {
       // Show notification with sound/vibration if app is in background
@@ -438,6 +432,7 @@ class MainViewModel extends ChangeNotifier {
       AppLogger.info('Coverage found - notification shown with sound/vibration (app in background)');
     } else {
       // App is in foreground - play sound/vibration without showing notification
+      // Don't cancel existing notification here - showCoverageNotification will handle it
       AppLogger.info('Coverage found - playing sound/vibration (app in foreground, modal will show)');
       // Play sound/vibration without showing notification
       NativeNotificationService.showCoverageNotification(showNotification: false);

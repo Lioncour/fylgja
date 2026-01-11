@@ -353,11 +353,11 @@ class NotificationHelper(private val context: Context) {
         
         // Create a NON-REPEATING vibration pattern (repeat index -1 means don't repeat)
         // We'll restart it manually via Handler for better control
-        // Pattern: vibrate 2000ms, pause 100ms, vibrate 2000ms, pause 100ms, vibrate 2000ms = 6200ms total
-        // This creates a much more continuous feeling - 6 seconds of vibration with only 0.2s of pauses
-        val vibrationPattern = longArrayOf(0, 2000, 100, 2000, 100, 2000) // Total: 6200ms (6s vibration, 0.2s pause)
+        // Pattern: vibrate 5000ms, pause 50ms, vibrate 5000ms, pause 50ms, vibrate 5000ms = 15100ms total
+        // This creates a much more continuous feeling - 15 seconds of vibration with only 0.1s of pauses
+        val vibrationPattern = longArrayOf(0, 5000, 50, 5000, 50, 5000) // Total: 15100ms (15s vibration, 0.1s pause)
         val vibrationDuration = vibrationPattern.sum() // Total duration of one cycle
-        println("NotificationHelper: Vibration pattern: ${vibrationPattern.contentToString()}, total duration: ${vibrationDuration}ms (${vibrationDuration/1000.0}s) - ${(vibrationDuration-200)/1000.0}s vibration, 0.2s pause")
+        println("NotificationHelper: Vibration pattern: ${vibrationPattern.contentToString()}, total duration: ${vibrationDuration}ms (${vibrationDuration/1000.0}s) - ${(vibrationDuration-100)/1000.0}s vibration, 0.1s pause")
         
         vibrationRunnable = object : Runnable {
             override fun run() {
@@ -409,11 +409,11 @@ class NotificationHelper(private val context: Context) {
                         println("NotificationHelper: Vibration triggered (legacy, non-repeating, will restart in ${vibrationDuration}ms)")
                     }
                     
-                    // Schedule next vibration restart BEFORE current one ends (at 98% of duration)
+                    // Schedule next vibration restart BEFORE current one ends (at 99% of duration)
                     // This ensures continuous vibration without gaps - restart just before pattern ends
-                    // Using 98% instead of 95% to make it feel more continuous
-                    val restartDelay = (vibrationDuration * 0.98).toLong()
-                    println("NotificationHelper: Scheduling next vibration restart in ${restartDelay}ms (98% of ${vibrationDuration}ms = ${vibrationDuration/1000.0}s duration)")
+                    // Using 99% to make it feel more continuous with longer patterns
+                    val restartDelay = (vibrationDuration * 0.99).toLong()
+                    println("NotificationHelper: Scheduling next vibration restart in ${restartDelay}ms (99% of ${vibrationDuration}ms = ${vibrationDuration/1000.0}s duration)")
                     
                     // Double-check flags and handler before scheduling
                     val shouldSchedule = shouldVibrate && !isStopping && currentHandler != null
