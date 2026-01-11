@@ -231,29 +231,31 @@ class SettingsPage extends StatelessWidget {
               FutureBuilder<PackageInfo>(
                 future: PackageInfo.fromPlatform(),
                 builder: (context, snapshot) {
-                  return Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      if (snapshot.hasData)
-                        Text(
-                          'Build ${snapshot.data!.buildNumber}',
-                          style: const TextStyle(
-                            fontSize: 12,
+                  return Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        if (snapshot.hasData)
+                          Text(
+                            'Build ${snapshot.data!.version}+${snapshot.data!.buildNumber}',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppTheme.secondaryText,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'a flokroll projects',
+                          style: TextStyle(
+                            fontSize: 10,
                             color: AppTheme.secondaryText,
                           ),
                           textAlign: TextAlign.center,
                         ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'a flokroll projects',
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: AppTheme.secondaryText,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
+                      ],
+                    ),
                   );
                 },
               ),
