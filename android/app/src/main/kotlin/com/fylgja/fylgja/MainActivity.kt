@@ -55,10 +55,8 @@ class MainActivity: FlutterActivity() {
         super.onResume()
         println("MainActivity: onResume - app is now in FOREGROUND")
         NotificationHelper.setAppInForeground(true)
-        // Cancel any existing notifications when app comes to foreground
-        if (::notificationHelper.isInitialized) {
-            notificationHelper.cancelNotification()
-        }
+        // Don't cancel notifications automatically - let Flutter handle it
+        // This allows sound/vibration to continue when phone wakes from standby after coverage is found
     }
     
     override fun onPause() {
