@@ -32,8 +32,17 @@ class NotificationHelper(private val context: Context) {
         // Static reference to current MediaPlayer for stopping continuous sound
         private var currentMediaPlayer: MediaPlayer? = null
         
+        // List of ALL active MediaPlayers to stop them all
+        private val activeMediaPlayers = mutableListOf<MediaPlayer>()
+        
         // Wake lock for standby mode sound playback
         private var wakeLock: PowerManager.WakeLock? = null
+        
+        // Audio focus request for Android O+
+        private var audioFocusRequest: android.media.AudioFocusRequest? = null
+        
+        // STATIC lock object for synchronizing MediaPlayer creation (companion object level)
+        private val mediaPlayerLock = Any()
         
         // Simple flag to prevent multiple sounds
         @Volatile
@@ -230,91 +239,209 @@ class NotificationHelper(private val context: Context) {
         val shouldShowNotification = showNotification && !isAppInForeground()
         println("NotificationHelper: Final decision - shouldShowNotification: $shouldShowNotification")
         
-        if (getIsPlaying()) {
-            println("NotificationHelper: ❌ Sound already playing, ignoring new request")
-            return
-        }
-        println("NotificationHelper: ✅ Not playing, proceeding...")
-        
-        // Set playing flag FIRST before stopping anything
-        setIsPlaying(true)
-        
-        // Stop existing sound/vibration BUT preserve vibration if it's already running
-        // We only want to stop if we're not already vibrating
-        if (!shouldVibrate) {
-            println("NotificationHelper: No existing vibration, stopping all sound")
-            stopAllSound()
-        } else {
-            println("NotificationHelper: Vibration already running, only stopping sound (not vibration)")
-            // Only stop sound, not vibration
-            currentMediaPlayer?.let { mediaPlayer ->
+        // CRITICAL: Single synchronized block for everything to prevent race conditions
+        synchronized(mediaPlayerLock) {
+            // Check if already playing FIRST (before doing anything)
+            if (getIsPlaying() || currentMediaPlayer != null) {
+                println("NotificationHelper: ❌ Sound already playing or MediaPlayer exists, ignoring new request (prevented by lock)")
+                return
+            }
+            
+            // Stop ALL existing MediaPlayers FIRST to prevent multiple sounds
+            // Stop currentMediaPlayer
+            currentMediaPlayer?.let { existingPlayer ->
+                println("NotificationHelper: ⚠️ Existing MediaPlayer found, stopping it first to prevent multiple sounds")
                 try {
-                    mediaPlayer.setOnCompletionListener(null)
-                    if (mediaPlayer.isPlaying) {
-                        mediaPlayer.stop()
+                    existingPlayer.isLooping = false
+                    existingPlayer.setOnCompletionListener(null)
+                    existingPlayer.setOnPreparedListener(null)
+                    existingPlayer.setOnErrorListener(null)
+                    try {
+                        if (existingPlayer.isPlaying) {
+                            existingPlayer.pause()
+                            println("NotificationHelper: Existing MediaPlayer paused")
+                        }
+                    } catch (pauseError: Exception) {
+                        println("NotificationHelper: Error pausing existing MediaPlayer: ${pauseError.message}")
                     }
-                    mediaPlayer.reset()
-                    mediaPlayer.release()
+                    try {
+                        existingPlayer.stop()
+                        println("NotificationHelper: Existing MediaPlayer stopped")
+                    } catch (stopError: Exception) {
+                        println("NotificationHelper: Error stopping existing MediaPlayer: ${stopError.message}")
+                    }
+                    existingPlayer.reset()
+                    existingPlayer.release()
+                    println("NotificationHelper: ✅ Existing MediaPlayer stopped and released")
                 } catch (e: Exception) {
-                    println("NotificationHelper: Error stopping MediaPlayer: ${e.message}")
+                    println("NotificationHelper: Error stopping existing MediaPlayer: ${e.message}")
+                    try {
+                        existingPlayer.release()
+                    } catch (releaseError: Exception) {
+                        println("NotificationHelper: Error force releasing existing MediaPlayer: ${releaseError.message}")
+                    }
                 }
             }
+            
+            // Stop ALL MediaPlayers in the active list
+            synchronized(activeMediaPlayers) {
+                activeMediaPlayers.forEach { player ->
+                    try {
+                        println("NotificationHelper: Stopping MediaPlayer from active list")
+                        player.isLooping = false
+                        player.setOnCompletionListener(null)
+                        player.setOnPreparedListener(null)
+                        player.setOnErrorListener(null)
+                        try {
+                            if (player.isPlaying) {
+                                player.pause()
+                            }
+                        } catch (e: Exception) {
+                            // Ignore
+                        }
+                        try {
+                            player.stop()
+                        } catch (e: Exception) {
+                            // Ignore
+                        }
+                        player.reset()
+                        player.release()
+                        println("NotificationHelper: ✅ MediaPlayer from active list stopped and released")
+                    } catch (e: Exception) {
+                        println("NotificationHelper: Error stopping MediaPlayer from active list: ${e.message}")
+                        try {
+                            player.release()
+                        } catch (releaseError: Exception) {
+                            // Ignore
+                        }
+                    }
+                }
+                activeMediaPlayers.clear()
+            }
+            
             currentMediaPlayer = null
-            releaseWakeLock()
-        }
-        
-        // Acquire wake lock for standby mode sound playback
-        acquireWakeLock(context)
-        
-        // Don't cancel vibration here - we want it to continue if already running
-        // Only cancel if we're starting a completely new notification
-        if (!shouldVibrate) {
-            println("NotificationHelper: No existing vibration, proceeding to start new one")
-        } else {
-            println("NotificationHelper: Vibration already running, will continue with existing vibration")
-        }
-        
-        // Create new MediaPlayer
-        val soundUri = Uri.parse("android.resource://${context.packageName}/raw/notification_sound")
-        
-        try {
-            currentMediaPlayer = MediaPlayer().apply {
-                setDataSource(context, soundUri)
+            setIsPlaying(false) // Reset flag after stopping
+            
+            println("NotificationHelper: ✅ Not playing, proceeding to create MediaPlayer (inside synchronized block)")
+            
+            // Acquire wake lock for standby mode sound playback
+            acquireWakeLock(context)
+            
+            // Create new MediaPlayer with continuous looping
+            // Create manually so we can set audio attributes before preparing
+            val resourceId = context.resources.getIdentifier("notification_sound", "raw", context.packageName)
+            println("NotificationHelper: Resource ID for notification_sound: $resourceId")
+            
+            // Request audio focus first
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            val audioFocusResult = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val focusRequest = android.media.AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+                    .setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_ALARM)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                            .build()
+                    )
+                    // Don't use setAcceptsDelayedFocusGain - requires a listener
+                    .build()
+                audioFocusRequest = focusRequest // Store for later abandonment
+                val result = audioManager.requestAudioFocus(focusRequest)
+                println("NotificationHelper: Audio focus requested (O+): result = $result")
+                result
+            } else {
+                @Suppress("DEPRECATION")
+                val result = audioManager.requestAudioFocus(
+                    null,
+                    AudioManager.STREAM_ALARM,
+                    AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
+                )
+                println("NotificationHelper: Audio focus requested (legacy): result = $result")
+                result
+            }
+            
+            if (audioFocusResult != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+                println("NotificationHelper: ⚠️ Audio focus not granted, but continuing anyway")
+            }
+            
+            try {
+                val newMediaPlayer = MediaPlayer().apply {
+                setOnErrorListener { mp, what, extra ->
+                    println("NotificationHelper: ❌ MediaPlayer ERROR - what: $what, extra: $extra")
+                    println("NotificationHelper: Error codes - MEDIA_ERROR_UNKNOWN: 1, MEDIA_ERROR_SERVER_DIED: 100")
+                    println("NotificationHelper: Extra codes - MEDIA_ERROR_IO: -1004, MEDIA_ERROR_MALFORMED: -1007, MEDIA_ERROR_UNSUPPORTED: -1010, MEDIA_ERROR_TIMED_OUT: -110")
+                    when (extra) {
+                        -19 -> println("NotificationHelper: Error -19 = MEDIA_ERROR_UNSUPPORTED - Audio format may not be supported")
+                        -1004 -> println("NotificationHelper: Error -1004 = MEDIA_ERROR_IO - File I/O error")
+                        -1007 -> println("NotificationHelper: Error -1007 = MEDIA_ERROR_MALFORMED - File is malformed")
+                        -1010 -> println("NotificationHelper: Error -1010 = MEDIA_ERROR_UNSUPPORTED - Format not supported")
+                        -110 -> println("NotificationHelper: Error -110 = MEDIA_ERROR_TIMED_OUT - Operation timed out")
+                        else -> println("NotificationHelper: Unknown error code: $extra")
+                    }
+                    setIsPlaying(false)
+                    true // Return true to indicate error was handled
+                }
+                
+                setOnPreparedListener { mp ->
+                    println("NotificationHelper: ✅ MediaPlayer prepared successfully!")
+                    try {
+                        mp.start()
+                        println("NotificationHelper: ✅ MediaPlayer started with looping enabled!")
+                        println("NotificationHelper: MediaPlayer isPlaying: ${mp.isPlaying}")
+                    } catch (e: Exception) {
+                        println("NotificationHelper: ❌ Error starting MediaPlayer after prepare: ${e.message}")
+                        e.printStackTrace()
+                        setIsPlaying(false)
+                    }
+                }
+                
+                // Set audio attributes FIRST (before setDataSource)
                 setAudioAttributes(
                     AudioAttributes.Builder()
                         .setUsage(AudioAttributes.USAGE_ALARM)
                         .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                        .setFlags(AudioAttributes.FLAG_AUDIBILITY_ENFORCED or AudioAttributes.FLAG_HW_AV_SYNC)
+                        .setFlags(AudioAttributes.FLAG_AUDIBILITY_ENFORCED)
                         .build()
                 )
-                setVolume(1.0f, 1.0f)
-                prepare()
-                start()
-                setOnCompletionListener { 
-                    // Restart the sound to keep it playing
-                    if (getIsPlaying()) {
-                        try {
-                            start()
-                        } catch (e: Exception) {
-                            println("NotificationHelper: Sound restart error: ${e.message}")
-                            setIsPlaying(false)
-                            release()
-                            currentMediaPlayer = null
-                        }
-                    }
+                println("NotificationHelper: AudioAttributes set to USAGE_ALARM")
+                
+                // Set data source using resource ID or URI
+                if (resourceId != 0) {
+                    val soundUri = Uri.parse("android.resource://${context.packageName}/raw/notification_sound")
+                    println("NotificationHelper: Setting data source using resource URI: $soundUri")
+                    setDataSource(context, soundUri)
+                } else {
+                    val soundUri = Uri.parse("android.resource://${context.packageName}/raw/notification_sound")
+                    println("NotificationHelper: Resource ID not found, using URI fallback: $soundUri")
+                    setDataSource(context, soundUri)
                 }
+                
+                setVolume(1.0f, 1.0f)
+                isLooping = true // Loop continuously for smooth playback
+                
+                println("NotificationHelper: Volume set to: 1.0")
+                println("NotificationHelper: Looping enabled: $isLooping")
+                println("NotificationHelper: Preparing MediaPlayer asynchronously...")
+                
+                    prepareAsync() // Use async prepare
+                }
+                
+                // Store the MediaPlayer reference
+                currentMediaPlayer = newMediaPlayer
+                
+                // Add to active list for tracking
+                synchronized(activeMediaPlayers) {
+                    activeMediaPlayers.add(newMediaPlayer)
+                    println("NotificationHelper: MediaPlayer added to active list (total: ${activeMediaPlayers.size})")
+                }
+                
+                // Set playing flag AFTER MediaPlayer is created and added to list
+                setIsPlaying(true)
+                println("NotificationHelper: ✅ MediaPlayer created and will start when prepared! (isPlaying set to true)")
+            } catch (e: Exception) {
+                println("NotificationHelper: ❌ Error creating MediaPlayer: ${e.message}")
+                e.printStackTrace()
+                setIsPlaying(false)
             }
-            
-            println("NotificationHelper: ✅ MediaPlayer started successfully!")
-            println("NotificationHelper: Sound URI: $soundUri")
-            println("NotificationHelper: Volume set to: 1.0")
-            println("NotificationHelper: AudioAttributes: USAGE_ALARM")
-            println("NotificationHelper: Sound will play continuously until stopSound() is called")
-            // No timer - sound will play continuously until stopSound() is called
-            
-        } catch (e: Exception) {
-            println("NotificationHelper: Error creating MediaPlayer: ${e.message}")
-            setIsPlaying(false)
         }
         
         // NO FALLBACK - only use MediaPlayer to prevent multiple sounds
@@ -648,7 +775,8 @@ class NotificationHelper(private val context: Context) {
     }
     
     private fun stopAllSound() {
-        println("NotificationHelper: stopAllSound called")
+        println("NotificationHelper: ===== STOP ALL SOUND CALLED =====")
+        println("NotificationHelper: currentMediaPlayer exists: ${currentMediaPlayer != null}")
         
         // Cancel timer
         soundTimer?.cancel()
@@ -657,29 +785,151 @@ class NotificationHelper(private val context: Context) {
         // Set playing flag to false immediately
         setIsPlaying(false)
         
-        // Stop current MediaPlayer
-        currentMediaPlayer?.let { mediaPlayer ->
+        // Stop current MediaPlayer - ALWAYS try to stop, even if in error state
+        val playerToStop: MediaPlayer?
+        synchronized(mediaPlayerLock) {
+            playerToStop = currentMediaPlayer
+            currentMediaPlayer = null // Clear reference immediately to prevent race conditions
+        }
+        
+        playerToStop?.let { mediaPlayer ->
+            println("NotificationHelper: Stopping MediaPlayer (reference obtained)...")
             try {
-                println("NotificationHelper: Stopping MediaPlayer - isPlaying: ${mediaPlayer.isPlaying}")
-                // Clear completion listener first
-                mediaPlayer.setOnCompletionListener(null)
-                if (mediaPlayer.isPlaying) {
-                    mediaPlayer.stop()
-                    println("NotificationHelper: MediaPlayer stopped")
+                // Disable looping first to prevent restart
+                try {
+                    mediaPlayer.isLooping = false
+                    println("NotificationHelper: Looping disabled")
+                } catch (e: Exception) {
+                    println("NotificationHelper: Error disabling looping: ${e.message}")
                 }
-                mediaPlayer.reset()
-                mediaPlayer.release()
-                println("NotificationHelper: MediaPlayer released")
-            } catch (e: Exception) {
-                println("NotificationHelper: Error stopping MediaPlayer: ${e.message}")
+                
+                // Clear all listeners FIRST to prevent callbacks
+                try {
+                    mediaPlayer.setOnCompletionListener(null)
+                    mediaPlayer.setOnPreparedListener(null)
+                    mediaPlayer.setOnErrorListener(null)
+                    println("NotificationHelper: All listeners cleared")
+                } catch (e: Exception) {
+                    println("NotificationHelper: Error clearing listeners: ${e.message}")
+                }
+                
+                // For looping MediaPlayers, pause first, then stop
+                try {
+                    // Pause first to immediately stop playback (works better with looping)
+                    try {
+                        mediaPlayer.pause()
+                        println("NotificationHelper: ✅ MediaPlayer.pause() called (stops looping immediately)")
+                    } catch (pauseError: Exception) {
+                        println("NotificationHelper: Error calling pause(): ${pauseError.message}")
+                    }
+                    
+                    // Then stop
+                    mediaPlayer.stop()
+                    println("NotificationHelper: ✅ MediaPlayer.stop() called")
+                } catch (e: Exception) {
+                    println("NotificationHelper: Error calling stop(): ${e.message}")
+                    // Continue anyway - try reset and release
+                }
+                
+                // Reset
+                try {
+                    mediaPlayer.reset()
+                    println("NotificationHelper: ✅ MediaPlayer.reset() called")
+                } catch (e: Exception) {
+                    println("NotificationHelper: Error calling reset(): ${e.message}")
+                }
+                
+                // Release
                 try {
                     mediaPlayer.release()
+                    println("NotificationHelper: ✅ MediaPlayer.release() called - sound should be stopped")
+                } catch (e: Exception) {
+                    println("NotificationHelper: Error calling release(): ${e.message}")
+                }
+                
+                // Remove from active list
+                synchronized(activeMediaPlayers) {
+                    activeMediaPlayers.remove(mediaPlayer)
+                    println("NotificationHelper: MediaPlayer removed from active list")
+                }
+            } catch (e: Exception) {
+                println("NotificationHelper: ❌ Exception in stopAllSound: ${e.message}")
+                e.printStackTrace()
+                // Force release as last resort
+                try {
+                    mediaPlayer.release()
+                    println("NotificationHelper: Force released MediaPlayer")
                 } catch (releaseError: Exception) {
                     println("NotificationHelper: Error force releasing MediaPlayer: ${releaseError.message}")
                 }
+                // Remove from active list
+                synchronized(activeMediaPlayers) {
+                    activeMediaPlayers.remove(mediaPlayer)
+                }
             }
         }
-        currentMediaPlayer = null
+        
+        // Stop ALL MediaPlayers in active list (in case some escaped)
+        synchronized(activeMediaPlayers) {
+            if (activeMediaPlayers.isNotEmpty()) {
+                println("NotificationHelper: ⚠️ Found ${activeMediaPlayers.size} MediaPlayer(s) in active list, stopping all")
+                activeMediaPlayers.forEach { player ->
+                    try {
+                        player.isLooping = false
+                        player.setOnCompletionListener(null)
+                        player.setOnPreparedListener(null)
+                        player.setOnErrorListener(null)
+                        try {
+                            if (player.isPlaying) {
+                                player.pause()
+                            }
+                        } catch (e: Exception) {
+                            // Ignore
+                        }
+                        try {
+                            player.stop()
+                        } catch (e: Exception) {
+                            // Ignore
+                        }
+                        player.reset()
+                        player.release()
+                        println("NotificationHelper: ✅ Stopped and released MediaPlayer from active list")
+                    } catch (e: Exception) {
+                        println("NotificationHelper: Error stopping MediaPlayer from active list: ${e.message}")
+                        try {
+                            player.release()
+                        } catch (releaseError: Exception) {
+                            // Ignore
+                        }
+                    }
+                }
+                activeMediaPlayers.clear()
+                println("NotificationHelper: ✅ All MediaPlayers from active list stopped and cleared")
+            } else {
+                println("NotificationHelper: No MediaPlayers in active list to stop")
+            }
+        }
+        
+        // Release audio focus
+        try {
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                audioFocusRequest?.let { request ->
+                    val result = audioManager.abandonAudioFocusRequest(request)
+                    println("NotificationHelper: Audio focus abandoned (O+): result = $result")
+                } ?: run {
+                    println("NotificationHelper: No audio focus request to abandon")
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                val result = audioManager.abandonAudioFocus(null)
+                println("NotificationHelper: Audio focus abandoned (legacy): result = $result")
+            }
+            audioFocusRequest = null
+        } catch (e: Exception) {
+            println("NotificationHelper: Error abandoning audio focus: ${e.message}")
+            e.printStackTrace()
+        }
         
         // Stop RingtoneManager sounds
         try {
