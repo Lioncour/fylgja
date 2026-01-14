@@ -1,4 +1,4 @@
-package com.fylgja.fylgja
+package no.fylgja.app
 
 import android.Manifest
 import android.content.pm.PackageManager
@@ -30,7 +30,7 @@ class MainActivity: FlutterActivity() {
     // Broadcast receiver for coverage events from native service
     private val coverageReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == "com.fylgja.fylgja.COVERAGE_FOUND") {
+            if (intent?.action == "no.fylgja.app.COVERAGE_FOUND") {
                 println("MainActivity: ===== COVERAGE BROADCAST RECEIVED =====")
                 println("MainActivity: Sending event to Flutter...")
                 eventSink?.success("coverage_found")
@@ -72,7 +72,7 @@ class MainActivity: FlutterActivity() {
         NotificationHelper.setAppInForeground(true) // Assume foreground on create
         
         // Register broadcast receiver for coverage events from native service
-        val filter = IntentFilter("com.fylgja.fylgja.COVERAGE_FOUND")
+        val filter = IntentFilter("no.fylgja.app.COVERAGE_FOUND")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             // Android 13+ requires explicit export flag
             registerReceiver(coverageReceiver, filter, RECEIVER_NOT_EXPORTED)

@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:geolocator/geolocator.dart';
 import '../theme/app_theme.dart';
 import '../services/coverage_history_service.dart';
 import '../models/coverage_event.dart';
@@ -20,7 +23,83 @@ class _StatisticsPageState extends State<StatisticsPage> {
   @override
   void initState() {
     super.initState();
+    _requestLocationPermission();
     _loadStatistics();
+  }
+
+  Future<void> _requestLocationPermission() async {
+    // Check if location services are enabled
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      // Location services are disabled, show a message
+      return;
+    }
+
+    // Check location permission
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      // Request permission
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        // Permission denied, user can enable it later
+        return;
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      // Permission denied forever, show a message
+      return;
+    }
+  }
+
+  Future<void> _openInGoogleMaps(double latitude, double longitude) async {
+    // Try multiple URL formats without checking canLaunchUrl first
+    // canLaunchUrl can return false even when Google Maps is installed
+    
+    final urls = [
+      // Try Google Maps app intent (Android) - most reliable
+      Uri.parse('google.navigation:q=$latitude,$longitude'),
+      // Try geo: URI with query
+      Uri.parse('geo:$latitude,$longitude?q=$latitude,$longitude'),
+      // Try simple geo: URI
+      Uri.parse('geo:$latitude,$longitude'),
+      // Try Google Maps web URL (will open in browser or Maps app)
+      Uri.parse('https://www.google.com/maps/search/?api=1&query=$latitude,$longitude'),
+      // Try Google Maps URL without API parameter
+      Uri.parse('https://www.google.com/maps?q=$latitude,$longitude'),
+    ];
+
+    for (final url in urls) {
+      try {
+        // Try to launch directly without checking canLaunchUrl
+        // This works better on Android where canLaunchUrl can be unreliable
+        await launchUrl(
+          url,
+          mode: LaunchMode.externalApplication,
+        );
+        // If we get here without exception, it worked
+        return;
+      } catch (e) {
+        // Continue to next URL format
+        continue;
+      }
+    }
+
+    // If all URLs failed, try with platform default mode
+    try {
+      final webUrl = Uri.parse('https://www.google.com/maps?q=$latitude,$longitude');
+      await launchUrl(webUrl, mode: LaunchMode.platformDefault);
+    } catch (e) {
+      // Show error message only if all attempts failed
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Kunne ikke åpne Google Maps. Prøv å installere Google Maps fra Play Store.'),
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _loadStatistics() async {
@@ -60,6 +139,15 @@ class _StatisticsPageState extends State<StatisticsPage> {
 
   @override
   Widget build(BuildContext context) {
+    // Set status bar to dark for visibility on light background
+    SystemChrome.setSystemUIOverlayStyle(
+      const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.dark,
+        statusBarBrightness: Brightness.light,
+      ),
+    );
+
     return Scaffold(
       backgroundColor: AppTheme.buttonAndAbout,
       appBar: AppBar(
@@ -250,6 +338,7 @@ class _StatisticsPageState extends State<StatisticsPage> {
   Widget _buildHistoryItem(CoverageEvent event) {
     final dateFormat = DateFormat('dd.MM.yyyy HH:mm');
     final duration = _formatDuration(event.searchDuration);
+    final hasLocation = event.latitude != null && event.longitude != null;
 
     return Card(
       color: Colors.white,
@@ -266,8 +355,8 @@ class _StatisticsPageState extends State<StatisticsPage> {
             color: AppTheme.indicatorAndIcon.withOpacity(0.1),
             borderRadius: BorderRadius.circular(8),
           ),
-          child: const Icon(
-            Icons.wifi,
+          child: Icon(
+            hasLocation ? Icons.location_on : Icons.wifi,
             color: AppTheme.indicatorAndIcon,
             size: 20,
           ),
@@ -279,11 +368,44 @@ class _StatisticsPageState extends State<StatisticsPage> {
             color: AppTheme.primaryText,
           ),
         ),
-        subtitle: Text(
-          'Søktid: $duration',
-          style: const TextStyle(
-            color: AppTheme.secondaryText,
-          ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Søktid: $duration',
+              style: const TextStyle(
+                color: AppTheme.secondaryText,
+              ),
+            ),
+            if (hasLocation) ...[
+              const SizedBox(height: 4),
+              InkWell(
+                onTap: () async {
+                  await HapticFeedbackUtil.selectionClick();
+                  await _openInGoogleMaps(event.latitude!, event.longitude!);
+                },
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.map,
+                      size: 16,
+                      color: AppTheme.indicatorAndIcon,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Åpne i Google Maps',
+                      style: TextStyle(
+                        color: AppTheme.indicatorAndIcon,
+                        fontSize: 12,
+                        decoration: TextDecoration.underline,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
         ),
         trailing: event.connectionType != null
             ? Chip(

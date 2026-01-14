@@ -3,11 +3,17 @@ import 'package:introduction_screen/introduction_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/app_theme.dart';
 import '../utils/haptic_feedback.dart';
+import 'main_page.dart';
 
 class OnboardingPage extends StatefulWidget {
   const OnboardingPage({super.key});
 
   static const String _onboardingKey = 'has_seen_onboarding';
+  
+  static Future<void> resetOnboarding() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_onboardingKey, false);
+  }
 
   static Future<bool> shouldShowOnboarding() async {
     final prefs = await SharedPreferences.getInstance();
@@ -84,14 +90,20 @@ class _OnboardingPageState extends State<OnboardingPage> with TickerProviderStat
         await HapticFeedbackUtil.mediumImpact();
         await OnboardingPage.markOnboardingComplete();
         if (context.mounted) {
-          Navigator.of(context).pop();
+          // Replace onboarding with MainPage
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (context) => const MainPage()),
+          );
         }
       },
       onSkip: () async {
         await HapticFeedbackUtil.selectionClick();
         await OnboardingPage.markOnboardingComplete();
         if (context.mounted) {
-          Navigator.of(context).pop();
+          // Replace onboarding with MainPage
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (context) => const MainPage()),
+          );
         }
       },
       onChange: (index) {

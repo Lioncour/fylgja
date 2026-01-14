@@ -1,4 +1,4 @@
-package com.fylgja.fylgja
+package no.fylgja.app
 
 import android.content.BroadcastReceiver
 import android.content.Context

@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:geolocator/geolocator.dart';
 import '../services/native_notification_service.dart';
 import '../services/native_connectivity_service.dart';
 import '../services/background_service.dart';
@@ -393,7 +394,7 @@ class MainViewModel extends ChangeNotifier {
     await HapticFeedbackUtil.selectionClick();
   }
   
-  void _handleCoverageFound() {
+  void _handleCoverageFound() async {
     AppLogger.info('🎉 COVERAGE FOUND! 🎉');
     
     // Calculate search duration
@@ -407,12 +408,30 @@ class MainViewModel extends ChangeNotifier {
     // This would be better determined from the actual connectivity result
     // For now, we'll leave it null
     
+    // Get GPS coordinates
+    double? latitude;
+    double? longitude;
+    try {
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 5),
+      );
+      latitude = position.latitude;
+      longitude = position.longitude;
+      AppLogger.info('GPS coordinates retrieved: $latitude, $longitude');
+    } catch (e) {
+      AppLogger.warning('Could not get GPS coordinates: $e');
+      // Continue without GPS coordinates
+    }
+    
     // Save to history
     if (searchDuration != null) {
       final event = CoverageEvent(
         timestamp: DateTime.now(),
         connectionType: connectionType,
         searchDuration: searchDuration,
+        latitude: latitude,
+        longitude: longitude,
       );
       CoverageHistoryService.saveEvent(event).catchError((e) {
         AppLogger.error('Error saving coverage event to history', e);

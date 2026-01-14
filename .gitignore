@@ -111,6 +111,13 @@ android/gradlew.bat
 android/local.properties
 android/settings.gradle
 
+# Android keystore files (DO NOT COMMIT)
+android/key.properties
+android/keystore.jks
+android/*.jks
+android/*.keystore
+android/KEYSTORE_PASSWORD.txt
+
 # Generated files
 *.g.dart
 *.freezed.dart

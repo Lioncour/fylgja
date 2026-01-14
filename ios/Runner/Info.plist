@@ -45,7 +45,11 @@
 		<true/>
 		<key>UIApplicationSupportsIndirectInputEvents</key>
 		<true/>
-		<key>UIStatusBarHidden</key>
-		<false/>
-	</dict>
+	<key>UIStatusBarHidden</key>
+	<false/>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Fylgja trenger tilgang til posisjonen din for å lagre GPS-koordinater når dekning blir funnet.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Fylgja trenger tilgang til posisjonen din for å lagre GPS-koordinater når dekning blir funnet.</string>
+</dict>
 </plist>

@@ -1,4 +1,4 @@
-package com.fylgja.fylgja
+package no.fylgja.app
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -596,7 +596,7 @@ class NotificationHelper(private val context: Context) {
                 .setSound(customSoundUri) // Use custom sound
                 // Don't set vibration here - we handle it directly with Handler for continuous vibration in standby
                 .setDefaults(NotificationCompat.DEFAULT_LIGHTS) // Only lights, not vibration (we handle it directly)
-                .setFullScreenIntent(pendingIntent, true) // Critical for standby
+                // Removed setFullScreenIntent() - not allowed by Google Play policy (only for alarms/calls)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC) // Critical for standby
                 .setLights(0xFF0000FF.toInt(), 1000, 1000) // Red light for attention
                 .setTimeoutAfter(0) // Don't timeout

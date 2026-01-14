@@ -1,4 +1,4 @@
-package com.fylgja.fylgja
+package no.fylgja.app
 
 import android.app.*
 import android.content.Context
@@ -142,7 +142,7 @@ class ConnectivityMonitoringService : Service() {
         NotificationHelper(this).showCoverageNotification()
         
         // CRITICAL: Send broadcast to Flutter so UI knows coverage was found
-        val intent = Intent("com.fylgja.fylgja.COVERAGE_FOUND")
+        val intent = Intent("no.fylgja.app.COVERAGE_FOUND")
         intent.putExtra("timestamp", System.currentTimeMillis())
         sendBroadcast(intent)
         Log.d(TAG, "Broadcast sent to Flutter: coverage found")
@@ -190,8 +190,8 @@ class ConnectivityMonitoringService : Service() {
         private const val CHANNEL_ID = "connectivity_monitoring_channel"
         private const val NOTIFICATION_ID = 889
         
-        const val ACTION_START_MONITORING = "com.fylgja.fylgja.START_MONITORING"
-        const val ACTION_STOP_MONITORING = "com.fylgja.fylgja.STOP_MONITORING"
+        const val ACTION_START_MONITORING = "no.fylgja.app.START_MONITORING"
+        const val ACTION_STOP_MONITORING = "no.fylgja.app.STOP_MONITORING"
         
         fun startService(context: Context) {
             val intent = Intent(context, ConnectivityMonitoringService::class.java).apply {

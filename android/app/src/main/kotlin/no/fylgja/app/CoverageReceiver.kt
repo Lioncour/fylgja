@@ -1,4 +1,4 @@
-package com.fylgja.fylgja
+package no.fylgja.app
 
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -8,7 +8,7 @@ import android.util.Log
 class CoverageReceiver : BroadcastReceiver() {
     companion object {
         private const val TAG = "CoverageReceiver"
-        const val ACTION_COVERAGE_FOUND = "com.fylgja.fylgja.COVERAGE_FOUND"
+        const val ACTION_COVERAGE_FOUND = "no.fylgja.app.COVERAGE_FOUND"
     }
 
     override fun onReceive(context: Context, intent: Intent) {

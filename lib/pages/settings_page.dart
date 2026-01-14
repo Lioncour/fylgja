@@ -7,9 +7,18 @@ import '../theme/app_theme.dart';
 import '../services/coverage_history_service.dart';
 import '../utils/haptic_feedback.dart';
 import 'statistics_page.dart';
+import 'developer_settings_page.dart';
 
-class SettingsPage extends StatelessWidget {
+class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
+
+  @override
+  State<SettingsPage> createState() => _SettingsPageState();
+}
+
+class _SettingsPageState extends State<SettingsPage> {
+  int _buildNumberTapCount = 0;
+  DateTime? _lastTapTime;
 
   @override
   Widget build(BuildContext context) {
@@ -237,13 +246,43 @@ class SettingsPage extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
                         if (snapshot.hasData)
-                          Text(
-                            'Build ${snapshot.data!.version}+${snapshot.data!.buildNumber}',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: AppTheme.secondaryText,
+                          GestureDetector(
+                            onTap: () async {
+                              final now = DateTime.now();
+                              // Reset counter if more than 2 seconds since last tap
+                              if (_lastTapTime == null || 
+                                  now.difference(_lastTapTime!) > const Duration(seconds: 2)) {
+                                _buildNumberTapCount = 0;
+                              }
+                              
+                              _buildNumberTapCount++;
+                              _lastTapTime = now;
+                              
+                              if (_buildNumberTapCount >= 7) {
+                                await HapticFeedbackUtil.heavyImpact();
+                                _buildNumberTapCount = 0;
+                                if (mounted) {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => const DeveloperSettingsPage(),
+                                    ),
+                                  );
+                                }
+                              } else {
+                                await HapticFeedbackUtil.selectionClick();
+                              }
+                              
+                              setState(() {});
+                            },
+                            child: Text(
+                              'Build ${snapshot.data!.version}+${snapshot.data!.buildNumber}',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: AppTheme.secondaryText,
+                              ),
+                              textAlign: TextAlign.center,
                             ),
-                            textAlign: TextAlign.center,
                           ),
                         const SizedBox(height: 8),
                         const Text(

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:intl/intl.dart';
 import '../viewmodels/main_viewmodel.dart';
 import '../theme/app_theme.dart';
 import '../models/search_state.dart';
@@ -8,7 +7,6 @@ import '../utils/haptic_feedback.dart';
 import '../services/native_notification_service.dart';
 import 'about_page.dart';
 import 'settings_page.dart';
-import 'onboarding_page.dart';
 
 class MainPage extends StatefulWidget {
   const MainPage({super.key});
@@ -88,6 +86,24 @@ class _MainPageState extends State<MainPage> with TickerProviderStateMixin {
     super.dispose();
   }
 
+  void _updateRotationAnimation(SearchState state) {
+    // Use post-frame callback to ensure animation state is updated correctly
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      
+      if (state == SearchState.searching) {
+        if (!_rotationController.isAnimating) {
+          _rotationController.repeat();
+        }
+      } else {
+        if (_rotationController.isAnimating) {
+          _rotationController.stop();
+          _rotationController.reset();
+        }
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -95,11 +111,7 @@ class _MainPageState extends State<MainPage> with TickerProviderStateMixin {
       body: Consumer<MainViewModel>(
         builder: (context, viewModel, child) {
           // Control rotation animation based on searching state
-          if (viewModel.state == SearchState.searching && !_rotationController.isAnimating) {
-            _rotationController.repeat();
-          } else if (viewModel.state != SearchState.searching && _rotationController.isAnimating) {
-            _rotationController.stop();
-          }
+          _updateRotationAnimation(viewModel.state);
 
           // Show coverage found modal (only once, and not if paused)
           print('MainPage: ===== BUILD CHECK =====');
