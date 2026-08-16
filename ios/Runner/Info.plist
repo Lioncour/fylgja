@@ -49,7 +49,7 @@
 	<false/>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Fylgja trenger tilgang til posisjonen din for å lagre GPS-koordinater når dekning blir funnet.</string>
-	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>Fylgja trenger tilgang til posisjonen din for å lagre GPS-koordinater når dekning blir funnet.</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>

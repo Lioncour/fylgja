@@ -118,6 +118,9 @@ android/*.jks
 android/*.keystore
 android/KEYSTORE_PASSWORD.txt
 
+# iOS signing material generated on Windows for GitHub Actions
+ios-signing/
+
 # Generated files
 *.g.dart
 *.freezed.dart

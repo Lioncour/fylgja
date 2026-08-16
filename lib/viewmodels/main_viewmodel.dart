@@ -1,20 +1,19 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:geolocator/geolocator.dart';
 import '../services/native_notification_service.dart';
 import '../services/native_connectivity_service.dart';
-import '../services/background_service.dart';
+import '../services/native_event_service.dart';
 import '../services/coverage_history_service.dart';
 import '../models/search_state.dart';
 import '../models/coverage_event.dart';
 import '../utils/logger.dart';
 import '../utils/haptic_feedback.dart';
 
-class MainViewModel extends ChangeNotifier {
+class MainViewModel extends ChangeNotifier with WidgetsBindingObserver {
   // State management
   SearchState _state = SearchState.idle;
   int _pauseDuration = 5;
@@ -22,10 +21,13 @@ class MainViewModel extends ChangeNotifier {
   DateTime? _searchStartTime;
   DateTime? _pauseStartTime;
   Timer? _pauseTimer;
+  Timer? _pauseBackupTimer;
+  Timer? _searchTicker;
   Duration? _pauseRemaining;
   
   // Connectivity monitoring
   StreamSubscription<ConnectivityResult>? _connectivitySubscription;
+  StreamSubscription<String>? _nativeEventSubscription;
   Timer? _connectivityTimer;
   StreamSubscription? _serviceStartedSubscription;
   StreamSubscription? _coverageFoundSubscription;
@@ -51,7 +53,8 @@ class MainViewModel extends ChangeNotifier {
   MainViewModel() {
     _loadPauseDuration();
     _setupServiceListener();
-    _setupAppLifecycleListener();
+    _setupNativeEventListener();
+    WidgetsBinding.instance.addObserver(this);
     AppLogger.info('MainViewModel initialized');
   }
   
@@ -67,17 +70,36 @@ class MainViewModel extends ChangeNotifier {
     }
   }
 
-  void _setupAppLifecycleListener() {
-    SystemChannels.lifecycle.setMessageHandler((message) async {
-      AppLogger.debug('App lifecycle state changed: $message');
-      
-      if (message == AppLifecycleState.resumed.toString()) {
-        AppLogger.info('App resumed from background/standby');
-        _handleAppResumed();
-      }
-      
-      return null;
-    });
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    AppLogger.debug('App lifecycle state changed: $state');
+
+    if (state == AppLifecycleState.resumed) {
+      AppLogger.info('App resumed from background/standby');
+      _handleAppResumed();
+    }
+  }
+
+  /// The native foreground service is the only monitor that survives Doze, so
+  /// its coverage events have to reach the UI even when the Dart poller is not
+  /// running.
+  void _setupNativeEventListener() {
+    try {
+      _nativeEventSubscription = NativeEventService.eventStream.listen(
+        (event) {
+          AppLogger.info('Native event received: $event');
+          if (event == 'coverage_found') {
+            _handleCoverageFound();
+          }
+        },
+        onError: (Object e) {
+          AppLogger.error('Error on native event stream', e);
+        },
+      );
+    } catch (e) {
+      AppLogger.error('Error setting up native event listener', e);
+    }
   }
 
   void _handleAppResumed() {
@@ -143,9 +165,33 @@ class MainViewModel extends ChangeNotifier {
         _searchStartTime = null;
       }
       
+      if (newState == SearchState.searching) {
+        _startSearchTicker();
+      } else {
+        _stopSearchTicker();
+      }
+      
       notifyListeners();
       AppLogger.debug('State changed: $oldState -> $newState');
     }
+  }
+  
+  /// Keeps the "Søkt i …" label on the main page ticking while searching.
+  void _startSearchTicker() {
+    if (_searchTicker != null) return;
+    _searchTicker = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_state != SearchState.searching) {
+        timer.cancel();
+        _searchTicker = null;
+        return;
+      }
+      notifyListeners();
+    });
+  }
+  
+  void _stopSearchTicker() {
+    _searchTicker?.cancel();
+    _searchTicker = null;
   }
   
   void _setError(String? message) {
@@ -185,13 +231,18 @@ class MainViewModel extends ChangeNotifier {
       _setState(SearchState.searching);
       _searchStartTime = DateTime.now();
       
-      // Start NATIVE Android service for standby mode
+      // Start NATIVE Android service for standby mode. On iOS this is a
+      // no-op; Dart connectivity monitoring below is the foreground path.
       try {
         await NativeConnectivityService.startMonitoring();
-        AppLogger.info('Native service started successfully');
+        if (NativeConnectivityService.isSupported) {
+          AppLogger.info('Native service started successfully');
+        }
       } catch (e) {
         AppLogger.error('Error starting native service', e);
-        _setError('Kunne ikke starte overvåking. Sjekk app-tillatelser.');
+        if (NativeConnectivityService.isSupported) {
+          _setError('Kunne ikke starte overvåking. Sjekk app-tillatelser.');
+        }
       }
       
       // Also keep old service for compatibility
@@ -275,9 +326,8 @@ class MainViewModel extends ChangeNotifier {
         AppLogger.error('Error stopping sound', e);
       }
       
-      // Cancel pause timer if active
-      _pauseTimer?.cancel();
-      _pauseTimer = null;
+      // Cancel pause timers if active
+      _cancelPauseTimers();
       _pauseStartTime = null;
       _pauseRemaining = null;
       
@@ -347,7 +397,8 @@ class MainViewModel extends ChangeNotifier {
       });
       
       // Also set a one-time timer as backup
-      Timer(Duration(minutes: _pauseDuration), () {
+      _pauseBackupTimer?.cancel();
+      _pauseBackupTimer = Timer(Duration(minutes: _pauseDuration), () {
         if (_state == SearchState.paused) {
           _resumeFromPause();
         }
@@ -367,11 +418,22 @@ class MainViewModel extends ChangeNotifier {
     }
   }
   
-  Future<void> _resumeFromPause() async {
-    AppLogger.info('Resuming search after pause');
-    
+  void _cancelPauseTimers() {
     _pauseTimer?.cancel();
     _pauseTimer = null;
+    _pauseBackupTimer?.cancel();
+    _pauseBackupTimer = null;
+  }
+  
+  Future<void> _resumeFromPause() async {
+    if (_state != SearchState.paused) {
+      AppLogger.debug('_resumeFromPause ignored - state is $_state');
+      return;
+    }
+    
+    AppLogger.info('Resuming search after pause');
+    
+    _cancelPauseTimers();
     _pauseStartTime = null;
     _pauseRemaining = null;
     
@@ -394,7 +456,14 @@ class MainViewModel extends ChangeNotifier {
     await HapticFeedbackUtil.selectionClick();
   }
   
-  void _handleCoverageFound() async {
+  void _handleCoverageFound() {
+    // The native service, the Dart poller and the background service can all
+    // report the same event; only the first one may raise the alert.
+    if (_state == SearchState.coverageFound || _state == SearchState.paused) {
+      AppLogger.debug('Coverage event ignored - already handled (state: $_state)');
+      return;
+    }
+    
     AppLogger.info('🎉 COVERAGE FOUND! 🎉');
     
     // Calculate search duration
@@ -403,43 +472,14 @@ class MainViewModel extends ChangeNotifier {
       searchDuration = DateTime.now().difference(_searchStartTime!);
     }
     
-    // Determine connection type
-    String? connectionType;
-    // This would be better determined from the actual connectivity result
-    // For now, we'll leave it null
-    
-    // Get GPS coordinates
-    double? latitude;
-    double? longitude;
-    try {
-      final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-        timeLimit: const Duration(seconds: 5),
-      );
-      latitude = position.latitude;
-      longitude = position.longitude;
-      AppLogger.info('GPS coordinates retrieved: $latitude, $longitude');
-    } catch (e) {
-      AppLogger.warning('Could not get GPS coordinates: $e');
-      // Continue without GPS coordinates
-    }
-    
-    // Save to history
-    if (searchDuration != null) {
-      final event = CoverageEvent(
-        timestamp: DateTime.now(),
-        connectionType: connectionType,
-        searchDuration: searchDuration,
-        latitude: latitude,
-        longitude: longitude,
-      );
-      CoverageHistoryService.saveEvent(event).catchError((e) {
-        AppLogger.error('Error saving coverage event to history', e);
-      });
-    }
-    
+    // Flip the state before any awaits so a second detector cannot get past
+    // the guard above, and so the alert is not delayed by the GPS lookup.
     _setState(SearchState.coverageFound);
     _isProcessing = false;
+    
+    if (searchDuration != null) {
+      _saveCoverageEvent(searchDuration);
+    }
     
     // Check if app is in foreground - only show notification if in background
     final isAppInForeground = WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
@@ -461,10 +501,56 @@ class MainViewModel extends ChangeNotifier {
     HapticFeedbackUtil.heavyImpact();
   }
   
-  Future<void> _cancelNotificationAsync() async {
-    await NativeNotificationService.cancelNotification();
-    await Future.delayed(const Duration(milliseconds: 50));
-    await NativeNotificationService.cancelNotification(); // Double cancel to be sure
+  /// Stores the coverage event for the statistics page. Location is optional:
+  /// it is only requested here, where the user has just been told coverage was
+  /// found and the coordinates are what the statistics map plots.
+  Future<void> _saveCoverageEvent(Duration searchDuration) async {
+    double? latitude;
+    double? longitude;
+    
+    try {
+      if (await _ensureLocationPermission()) {
+        final position = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high,
+          timeLimit: const Duration(seconds: 5),
+        );
+        latitude = position.latitude;
+        longitude = position.longitude;
+        AppLogger.info('GPS coordinates retrieved: $latitude, $longitude');
+      }
+    } catch (e) {
+      AppLogger.warning('Could not get GPS coordinates: $e');
+      // The event is still worth storing without coordinates.
+    }
+    
+    final event = CoverageEvent(
+      timestamp: DateTime.now(),
+      connectionType: null,
+      searchDuration: searchDuration,
+      latitude: latitude,
+      longitude: longitude,
+    );
+    
+    try {
+      await CoverageHistoryService.saveEvent(event);
+    } catch (e) {
+      AppLogger.error('Error saving coverage event to history', e);
+    }
+  }
+  
+  Future<bool> _ensureLocationPermission() async {
+    if (!await Geolocator.isLocationServiceEnabled()) {
+      AppLogger.info('Location services are disabled - saving event without position');
+      return false;
+    }
+    
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    
+    return permission == LocationPermission.always ||
+        permission == LocationPermission.whileInUse;
   }
   
   Future<void> setPauseDuration(int duration) async {
@@ -547,12 +633,16 @@ class MainViewModel extends ChangeNotifier {
   void dispose() {
     AppLogger.info('Disposing MainViewModel');
     
+    WidgetsBinding.instance.removeObserver(this);
+    
     // Cancel all timers
     _connectivityTimer?.cancel();
-    _pauseTimer?.cancel();
+    _searchTicker?.cancel();
+    _cancelPauseTimers();
     
     // Cancel all subscriptions
     _connectivitySubscription?.cancel();
+    _nativeEventSubscription?.cancel();
     _serviceStartedSubscription?.cancel();
     _coverageFoundSubscription?.cancel();
     _coverageLostSubscription?.cancel();

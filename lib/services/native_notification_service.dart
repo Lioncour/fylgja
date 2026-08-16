@@ -1,46 +1,51 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import '../utils/logger.dart';
 
 class NativeNotificationService {
   static const MethodChannel _channel = MethodChannel('fylgja/notifications');
 
+  static bool get isSupported =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
-  /// Shows the coverage notification using native Android code
-  /// [showNotification] - if false, only plays sound/vibration without showing notification
+  /// Shows the coverage notification using native Android code.
+  /// [showNotification] - if false, only plays sound/vibration without showing notification.
   static Future<void> showCoverageNotification({bool showNotification = true}) async {
+    if (!isSupported) {
+      AppLogger.info('Native coverage notification is Android-only; skipping');
+      return;
+    }
     try {
-      print('NativeNotificationService: showCoverageNotification called, showNotification: $showNotification');
-      await _channel.invokeMethod('showCoverageNotification', {'showNotification': showNotification});
-      print('NativeNotificationService: ✅ Coverage notification sent successfully!');
+      await _channel.invokeMethod('showCoverageNotification', {
+        'showNotification': showNotification,
+      });
+      AppLogger.info('Coverage notification sent');
     } catch (e) {
-      print('NativeNotificationService: ❌ Error showing coverage notification: $e');
+      AppLogger.error('Error showing coverage notification', e);
     }
   }
 
-
-  /// Cancels the coverage notification
   static Future<void> cancelNotification() async {
+    if (!isSupported) {
+      return;
+    }
     try {
-      print('NativeNotificationService: cancelNotification called');
       await _channel.invokeMethod('cancelNotification');
-      print('NativeNotificationService: ✅ Notification cancelled');
+      AppLogger.info('Coverage notification cancelled');
     } catch (e) {
-      print('NativeNotificationService: ❌ Error cancelling notification: $e');
+      AppLogger.error('Error cancelling notification', e);
     }
   }
 
-  /// Stops all sound and vibration (for pause/stop)
   static Future<void> stopSound() async {
+    if (!isSupported) {
+      return;
+    }
     try {
-      print('NativeNotificationService: ===== STOP SOUND CALLED =====');
-      print('NativeNotificationService: Timestamp: ${DateTime.now().toIso8601String()}');
-      print('NativeNotificationService: Invoking method channel: stopSound');
       await _channel.invokeMethod('stopSound');
-      print('NativeNotificationService: ✅ Method channel invoke completed');
-      print('NativeNotificationService: ===== STOP SOUND COMPLETE =====');
-    } catch (e, stackTrace) {
-      print('NativeNotificationService: ❌ ERROR stopping sound: $e');
-      print('NativeNotificationService: Stack trace: $stackTrace');
+      AppLogger.info('Coverage sound stopped');
+    } catch (e) {
+      AppLogger.error('Error stopping sound', e);
     }
   }
-
 }
