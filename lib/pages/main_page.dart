@@ -439,7 +439,7 @@ class _MainPageState extends State<MainPage> with TickerProviderStateMixin {
               ),
               const SizedBox(height: 12),
               const Text(
-                'Din Mág i fjell og dal',
+                'Din mág i fjell og dal',
                 style: TextStyle(
                   fontSize: 16,
                   color: Color(0xFFF6EEA1),
@@ -548,7 +548,7 @@ class _MainPageState extends State<MainPage> with TickerProviderStateMixin {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Din Mág i fjell og dal',
+              'Din mág i fjell og dal',
               style: TextStyle(
                 fontSize: 16,
                 color: Color(0xFFF6EEA1),
@@ -650,7 +650,7 @@ class _MainPageState extends State<MainPage> with TickerProviderStateMixin {
           ),
           const SizedBox(height: 8),
           const Text(
-            'Din Mág i fjell og dal',
+            'Din mág i fjell og dal',
             style: TextStyle(
               fontSize: 16,
               color: Color(0xFFF6EEA1),

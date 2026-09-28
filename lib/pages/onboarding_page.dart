@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:introduction_screen/introduction_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -69,13 +70,7 @@ class _OnboardingPageState extends State<OnboardingPage> with TickerProviderStat
         ),
         PageViewModel(
           title: 'Hvordan det fungerer',
-          body: 'Start et søk, og Fylgja vil overvåke nettverksdekning i bakgrunnen. Når dekning blir tilgjengelig, får du et varsel med lyd og vibrasjon.',
-          image: _buildRotatingImage(),
-          decoration: _getPageDecoration(),
-        ),
-        PageViewModel(
-          title: 'Batterioptimalisering',
-          body: 'For best funksjonalitet, sørg for at Fylgja ikke er begrenset av batterioptimalisering. Dette sikrer at appen kan overvåke dekning selv når telefonen er i dyp søvn.',
+          body: _howItWorksText,
           image: _buildRotatingImage(),
           decoration: _getPageDecoration(),
         ),
@@ -163,6 +158,12 @@ class _OnboardingPageState extends State<OnboardingPage> with TickerProviderStat
       animationDuration: 600,
     );
   }
+
+  // iOS only searches while the app is open (see MainViewModel._updateWakelock),
+  // so it must not promise background monitoring like Android does.
+  static String get _howItWorksText => defaultTargetPlatform == TargetPlatform.iOS
+      ? 'Start et søk og la Fylgja være åpen. Skjermen holdes påslått mens du søker, og når dekning blir tilgjengelig, får du et varsel med lyd. Låser du skjermen eller bytter app, stopper søket til du åpner Fylgja igjen.'
+      : 'Start et søk, og Fylgja vil overvåke nettverksdekning i bakgrunnen. Når dekning blir tilgjengelig, får du et varsel med lyd og vibrasjon.';
 
   Widget _buildRotatingImage() {
     return Center(

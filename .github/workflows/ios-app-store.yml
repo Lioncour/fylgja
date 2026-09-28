@@ -87,17 +87,20 @@ jobs:
           python3 - <<PY
           from pathlib import Path
           import os
+          import re
           team = os.environ["APPLE_TEAM_ID"]
           profile = os.environ["IOS_PROFILE_NAME"]
           p = Path("ios/Runner.xcodeproj/project.pbxproj")
           text = p.read_text()
-          needle = "PRODUCT_BUNDLE_IDENTIFIER = no.fylgja.app;"
+          # The project sets a team for local builds; replace it with the secret's.
+          text = re.sub(r"\n\t+DEVELOPMENT_TEAM = \w+;", "", text)
+          needle = "PRODUCT_BUNDLE_IDENTIFIER = no.janandersekroll.fylgja;"
           insert = (
               "CODE_SIGN_STYLE = Manual;\n"
               "\t\t\t\tCODE_SIGN_IDENTITY = \"Apple Distribution\";\n"
               f"\t\t\t\tDEVELOPMENT_TEAM = {team};\n"
               f"\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = \"{profile}\";\n"
-              "\t\t\t\tPRODUCT_BUNDLE_IDENTIFIER = no.fylgja.app;"
+              "\t\t\t\tPRODUCT_BUNDLE_IDENTIFIER = no.janandersekroll.fylgja;"
           )
           if needle not in text:
               raise SystemExit("Could not find iOS bundle id in project.pbxproj")
@@ -125,7 +128,7 @@ jobs:
             <true/>
             <key>provisioningProfiles</key>
             <dict>
-              <key>no.fylgja.app</key>
+              <key>no.janandersekroll.fylgja</key>
               <string>${IOS_PROFILE_NAME}</string>
             </dict>
           </dict>

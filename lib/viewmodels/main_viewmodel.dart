@@ -1,9 +1,12 @@
 import 'dart:async';
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import '../services/native_notification_service.dart';
 import '../services/native_connectivity_service.dart';
 import '../services/native_event_service.dart';
@@ -171,9 +174,19 @@ class MainViewModel extends ChangeNotifier with WidgetsBindingObserver {
         _stopSearchTicker();
       }
       
+      _updateWakelock();
+      
       notifyListeners();
       AppLogger.debug('State changed: $oldState -> $newState');
     }
+  }
+  
+  /// iOS suspends the app when the screen locks, which stops the search, so keep
+  /// the screen awake while searching or paused (the pause resumes the search).
+  void _updateWakelock() {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return;
+    final keepAwake = _state == SearchState.searching || _state == SearchState.paused;
+    WakelockPlus.toggle(enable: keepAwake);
   }
   
   /// Keeps the "Søkt i …" label on the main page ticking while searching.
@@ -610,14 +623,48 @@ class MainViewModel extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _checkConnectivity() async {
     try {
       final connectivityResult = await Connectivity().checkConnectivity();
-      _handleConnectivityChange([connectivityResult]);
+      await _handleConnectivityChange([connectivityResult]);
     } catch (e) {
       AppLogger.error('Error checking connectivity', e);
     }
   }
   
-  void _handleConnectivityChange(List<ConnectivityResult> results) {
-    final isConnected = results.any((result) => result != ConnectivityResult.none);
+  bool _checkingInternet = false;
+  
+  /// A network interface being up doesn't mean data gets through (e.g. no signal
+  /// or a captive portal), so confirm with a real request, like Android's
+  /// NET_CAPABILITY_VALIDATED check in the native service.
+  Future<bool> _hasInternet() async {
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
+    try {
+      final request = await client
+          .getUrl(Uri.parse('https://www.google.com/generate_204'))
+          .timeout(const Duration(seconds: 5));
+      final response = await request.close().timeout(const Duration(seconds: 5));
+      await response.drain<void>();
+      return response.statusCode == 204;
+    } catch (e) {
+      return false;
+    } finally {
+      client.close(force: true);
+    }
+  }
+  
+  Future<void> _handleConnectivityChange(List<ConnectivityResult> results) async {
+    final hasNetwork = results.any((result) => result != ConnectivityResult.none);
+    bool isConnected = false;
+    if (hasNetwork && _state == SearchState.searching) {
+      // The 2 s poller and the change listener can overlap; one request at a time.
+      if (_checkingInternet) return;
+      _checkingInternet = true;
+      try {
+        isConnected = await _hasInternet();
+      } finally {
+        _checkingInternet = false;
+      }
+    } else {
+      isConnected = hasNetwork;
+    }
     AppLogger.debug('Connectivity change detected - Connected: $isConnected, Results: $results');
     
     if (isConnected && _state == SearchState.searching) {
@@ -651,6 +698,10 @@ class MainViewModel extends ChangeNotifier with WidgetsBindingObserver {
     
     // Stop monitoring
     _stopConnectivityMonitoring();
+    
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+      WakelockPlus.disable();
+    }
     
     super.dispose();
   }
