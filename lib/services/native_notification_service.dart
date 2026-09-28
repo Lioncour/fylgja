@@ -13,8 +13,9 @@ class NativeNotificationService {
 
   static bool get _isIOS => !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
 
-  // iOS has no native alert code, so the sound is played from Dart. The app only
-  // searches in the foreground there, so no notification is needed.
+  // iOS has no native alert code, so the sound is played from Dart. The app is
+  // kept running by BackgroundKeepAlive (or the screen is kept on), so the
+  // sound can play directly and no notification is needed.
   static AudioPlayer? _iosPlayer;
 
   static Future<AudioPlayer> _getIOSPlayer() async {
@@ -32,6 +33,17 @@ class NativeNotificationService {
     player.onPlayerComplete.listen((_) => Vibration.cancel());
     _iosPlayer = player;
     return player;
+  }
+
+  /// Loads the iOS alert sound ahead of time. Setting up the audio session is
+  /// safest in the foreground; the alert may later start with the screen locked.
+  static Future<void> prepare() async {
+    if (!_isIOS) return;
+    try {
+      await _getIOSPlayer();
+    } catch (e) {
+      AppLogger.error('Error preparing coverage sound (iOS)', e);
+    }
   }
 
   static Future<void> _playIOSAlert() async {

@@ -27,6 +27,9 @@ class MainViewModel extends ChangeNotifier with WidgetsBindingObserver {
   Timer? _pauseBackupTimer;
   Timer? _searchTicker;
   Duration? _pauseRemaining;
+  // iOS: whether BackgroundKeepAlive could not start (no location access), so
+  // the screen has to stay on instead.
+  bool _keepAliveUnavailable = false;
   
   // Connectivity monitoring
   StreamSubscription<ConnectivityResult>? _connectivitySubscription;
@@ -181,11 +184,13 @@ class MainViewModel extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
   
-  /// iOS suspends the app when the screen locks, which stops the search, so keep
-  /// the screen awake while searching or paused (the pause resumes the search).
+  /// iOS suspends the app when the screen locks, which stops the search.
+  /// BackgroundKeepAlive normally prevents that; without it, keep the screen
+  /// awake while searching or paused (the pause resumes the search).
   void _updateWakelock() {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return;
-    final keepAwake = _state == SearchState.searching || _state == SearchState.paused;
+    final keepAwake = _keepAliveUnavailable &&
+        (_state == SearchState.searching || _state == SearchState.paused);
     WakelockPlus.toggle(enable: keepAwake);
   }
   
@@ -244,19 +249,13 @@ class MainViewModel extends ChangeNotifier with WidgetsBindingObserver {
       _setState(SearchState.searching);
       _searchStartTime = DateTime.now();
       
-      // Start NATIVE Android service for standby mode. On iOS this is a
-      // no-op; Dart connectivity monitoring below is the foreground path.
-      try {
-        await NativeConnectivityService.startMonitoring();
-        if (NativeConnectivityService.isSupported) {
-          AppLogger.info('Native service started successfully');
-        }
-      } catch (e) {
-        AppLogger.error('Error starting native service', e);
-        if (NativeConnectivityService.isSupported) {
-          _setError('Kunne ikke starte overvåking. Sjekk app-tillatelser.');
-        }
-      }
+      // Start the native service for standby mode: on Android it monitors
+      // connectivity itself, on iOS it keeps the Dart monitoring below alive.
+      await _startNativeMonitoring();
+      
+      // Load the iOS sound now, while in the foreground, so it can start
+      // straight away if coverage is found with the screen locked.
+      await NativeNotificationService.prepare();
       
       // Also keep old service for compatibility
       try {
@@ -454,19 +453,32 @@ class MainViewModel extends ChangeNotifier with WidgetsBindingObserver {
     _searchStartTime = DateTime.now();
     
     // Resume NATIVE service
-    try {
-      await NativeConnectivityService.startMonitoring();
-      AppLogger.info('Native service restarted');
-    } catch (e) {
-      AppLogger.error('Error restarting native service', e);
-      _setError('Kunne ikke gjenoppta overvåking.');
-    }
+    await _startNativeMonitoring();
     
     // Resume connectivity monitoring
     await _startConnectivityMonitoring();
     
     // Haptic feedback
     await HapticFeedbackUtil.selectionClick();
+  }
+  
+  Future<void> _startNativeMonitoring() async {
+    try {
+      await NativeConnectivityService.startMonitoring();
+      _keepAliveUnavailable = false;
+      if (NativeConnectivityService.isSupported) {
+        AppLogger.info('Native service started successfully');
+      }
+    } catch (e) {
+      AppLogger.error('Error starting native service', e);
+      if (defaultTargetPlatform == TargetPlatform.iOS) {
+        // Still searches, but only with the screen on.
+        _keepAliveUnavailable = true;
+      } else if (NativeConnectivityService.isSupported) {
+        _setError('Kunne ikke starte overvåking. Sjekk app-tillatelser.');
+      }
+    }
+    _updateWakelock();
   }
   
   void _handleCoverageFound() {
