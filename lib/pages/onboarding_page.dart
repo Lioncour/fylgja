@@ -70,7 +70,13 @@ class _OnboardingPageState extends State<OnboardingPage> with TickerProviderStat
         ),
         PageViewModel(
           title: 'Hvordan det fungerer',
-          body: _howItWorksText,
+          body: 'Start et søk, og Fylgja vil overvåke nettverksdekning i bakgrunnen, også når skjermen er låst. Når dekning blir tilgjengelig, får du et varsel med lyd og vibrasjon.',
+          image: _buildRotatingImage(),
+          decoration: _getPageDecoration(),
+        ),
+        PageViewModel(
+          title: _backgroundTitle,
+          body: _backgroundText,
           image: _buildRotatingImage(),
           decoration: _getPageDecoration(),
         ),
@@ -159,11 +165,17 @@ class _OnboardingPageState extends State<OnboardingPage> with TickerProviderStat
     );
   }
 
-  // iOS only searches while the app is open (see MainViewModel._updateWakelock),
-  // so it must not promise background monitoring like Android does.
-  static String get _howItWorksText => defaultTargetPlatform == TargetPlatform.iOS
-      ? 'Start et søk og la Fylgja være åpen. Skjermen holdes påslått mens du søker, og når dekning blir tilgjengelig, får du et varsel med lyd. Låser du skjermen eller bytter app, stopper søket til du åpner Fylgja igjen.'
-      : 'Start et søk, og Fylgja vil overvåke nettverksdekning i bakgrunnen. Når dekning blir tilgjengelig, får du et varsel med lyd og vibrasjon.';
+  // What keeps the search running with the screen locked: on Android, being
+  // exempt from battery optimisation; on iOS, location access (see
+  // BackgroundKeepAlive.swift), without which the screen has to stay on.
+  static bool get _isIOS => defaultTargetPlatform == TargetPlatform.iOS;
+
+  static String get _backgroundTitle =>
+      _isIOS ? 'Tilgang til posisjon' : 'Batterioptimalisering';
+
+  static String get _backgroundText => _isIOS
+      ? 'For at Fylgja skal kunne søke når skjermen er låst, trenger appen tilgang til posisjonen din mens den er i bruk. Du ser et blått posisjonssymbol øverst på skjermen mens Fylgja søker. Uten tilgang må skjermen være på mens du søker.'
+      : 'For best funksjonalitet, sørg for at Fylgja ikke er begrenset av batterioptimalisering. Dette sikrer at appen kan overvåke dekning selv når telefonen er i dyp søvn.';
 
   Widget _buildRotatingImage() {
     return Center(
