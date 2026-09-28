@@ -28,6 +28,8 @@
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Fylgja trenger tilgang til posisjonen din for å lagre GPS-koordinater når dekning blir funnet. Posisjonen brukes bare mens appen er åpen.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Fylgja trenger tilgang til posisjonen din for å lagre GPS-koordinater når dekning blir funnet.</string>
 	<key>UIApplicationSceneManifest</key>
