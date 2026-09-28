@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:geolocator/geolocator.dart';
 import '../viewmodels/main_viewmodel.dart';
 import '../theme/app_theme.dart';
 import '../models/search_state.dart';
@@ -157,6 +158,25 @@ class _MainPageState extends State<MainPage> with TickerProviderStateMixin {
                     label: 'OK',
                     textColor: Colors.white,
                     onPressed: () => viewModel.clearError(),
+                  ),
+                ),
+              );
+            });
+          }
+
+          // iOS without location access: the search stops when the screen locks.
+          if (viewModel.showScreenOnNotice) {
+            viewModel.dismissScreenOnNotice();
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                    'Posisjon er slått av, så søket fortsetter bare mens skjermen er på.',
+                  ),
+                  duration: Duration(seconds: 8),
+                  action: SnackBarAction(
+                    label: 'Innstillinger',
+                    onPressed: Geolocator.openAppSettings,
                   ),
                 ),
               );

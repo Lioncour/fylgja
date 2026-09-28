@@ -1,6 +1,7 @@
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'package:vibration/vibration.dart';
 import '../utils/logger.dart';
 import 'coverage_vibration_pattern.dart';
@@ -30,7 +31,7 @@ class NativeNotificationService {
     await player.setReleaseMode(ReleaseMode.stop);
     await player.setSource(AssetSource('audio/notification_sound.mp3'));
     // The vibration is timed to the sound; end it with the sound in case they drift.
-    player.onPlayerComplete.listen((_) => Vibration.cancel());
+    player.onPlayerComplete.listen((_) => _cancelIOSVibration());
     _iosPlayer = player;
     return player;
   }
@@ -56,14 +57,32 @@ class NativeNotificationService {
       AppLogger.error('Error playing coverage sound (iOS)', e);
     }
     try {
-      // Follows the sound's loudness and plays once, so it ends with the sound.
-      // Uses Core Haptics, so it only works while the app is open.
-      await Vibration.vibrate(
-        pattern: coverageVibrationPattern,
-        intensities: coverageVibrationIntensities,
-      );
+      final inForeground =
+          WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+      if (inForeground) {
+        // Follows the sound's loudness and plays once, so it ends with the sound.
+        // Uses Core Haptics, so it only works while the app is open.
+        await Vibration.vibrate(
+          pattern: coverageVibrationPattern,
+          intensities: coverageVibrationIntensities,
+        );
+      } else {
+        // AlertVibration pulses the system vibration, which works in the background.
+        await _channel.invokeMethod('startVibration', {
+          'durationMs': coverageVibrationPattern.fold<int>(0, (sum, ms) => sum + ms),
+        });
+      }
     } catch (e) {
       AppLogger.error('Error starting vibration (iOS)', e);
+    }
+  }
+
+  static Future<void> _cancelIOSVibration() async {
+    try {
+      await Vibration.cancel();
+      await _channel.invokeMethod('stopVibration');
+    } catch (e) {
+      AppLogger.error('Error stopping vibration (iOS)', e);
     }
   }
 
@@ -73,11 +92,7 @@ class NativeNotificationService {
     } catch (e) {
       AppLogger.error('Error stopping coverage sound (iOS)', e);
     }
-    try {
-      await Vibration.cancel();
-    } catch (e) {
-      AppLogger.error('Error stopping vibration (iOS)', e);
-    }
+    await _cancelIOSVibration();
   }
 
   /// Shows the coverage notification using native Android code.

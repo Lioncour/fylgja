@@ -3,7 +3,8 @@ import UIKit
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
-  private let backgroundKeepAlive = BackgroundKeepAlive()
+  private let coverageMonitor = CoverageMonitor()
+  private let alertVibration = AlertVibration()
 
   override func application(
     _ application: UIApplication,
@@ -14,8 +15,9 @@ import UIKit
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
-    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "BackgroundKeepAlive") {
-      backgroundKeepAlive.register(with: registrar.messenger())
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "FylgjaNative") {
+      coverageMonitor.register(with: registrar.messenger())
+      alertVibration.register(with: registrar.messenger())
     }
   }
 }
