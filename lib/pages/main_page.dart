@@ -148,11 +148,14 @@ class _MainPageState extends State<MainPage> with TickerProviderStateMixin {
           }
 
           // Show error snackbar if there's an error (but not for coverage found)
-          if (viewModel.errorMessage != null && viewModel.state != SearchState.coverageFound) {
+          final errorToShow = viewModel.state != SearchState.coverageFound
+              ? viewModel.takeErrorToShow()
+              : null;
+          if (errorToShow != null) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: Text(viewModel.errorMessage!),
+                  content: Text(errorToShow),
                   backgroundColor: Colors.red,
                   action: SnackBarAction(
                     label: 'OK',

@@ -47,6 +47,7 @@ class MainViewModel extends ChangeNotifier with WidgetsBindingObserver {
   
   // Error handling
   String? _errorMessage;
+  bool _errorShown = false;
   
   // Getters
   SearchState get state => _state;
@@ -192,11 +193,11 @@ class MainViewModel extends ChangeNotifier with WidgetsBindingObserver {
   
   /// iOS suspends the app when the screen locks, which stops the search.
   /// BackgroundKeepAlive normally prevents that; without it, keep the screen
-  /// awake while searching or paused (the pause resumes the search).
+  /// awake while searching. A pause may let the screen lock: its timer runs
+  /// on the clock, so the search resumes when the app is opened again.
   void _updateWakelock() {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return;
-    final keepAwake = _keepAliveUnavailable &&
-        (_state == SearchState.searching || _state == SearchState.paused);
+    final keepAwake = _keepAliveUnavailable && _state == SearchState.searching;
     WakelockPlus.toggle(enable: keepAwake);
   }
   
@@ -220,6 +221,7 @@ class MainViewModel extends ChangeNotifier with WidgetsBindingObserver {
   
   void _setError(String? message) {
     _errorMessage = message;
+    _errorShown = false;
     notifyListeners();
     if (message != null) {
       AppLogger.warning('Error set: $message');
@@ -228,6 +230,15 @@ class MainViewModel extends ChangeNotifier with WidgetsBindingObserver {
   
   void clearError() {
     _setError(null);
+  }
+  
+  /// The error message if it hasn't been shown yet, and marks it as shown, so
+  /// the page shows each error once rather than on every rebuild. Doesn't
+  /// notify, since it is called while building.
+  String? takeErrorToShow() {
+    if (_errorMessage == null || _errorShown) return null;
+    _errorShown = true;
+    return _errorMessage;
   }
   
   /// Called by the page once it has shown the notice. Doesn't notify, since it
