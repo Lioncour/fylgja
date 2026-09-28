@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:introduction_screen/introduction_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/permission_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/haptic_feedback.dart';
 import 'main_page.dart';
@@ -34,6 +35,11 @@ class _OnboardingPageState extends State<OnboardingPage> with TickerProviderStat
   late AnimationController _rotationController;
   late Animation<double> _rotationAnimation;
   int _currentPage = 0;
+  bool _permissionsRequested = false;
+  
+  /// The page explaining why Fylgja needs location (and on iOS notifications);
+  /// the permissions are asked for when the user leaves it.
+  static const int _permissionsPageIndex = 2;
 
   @override
   void initState() {
@@ -89,6 +95,7 @@ class _OnboardingPageState extends State<OnboardingPage> with TickerProviderStat
       ],
       onDone: () async {
         await HapticFeedbackUtil.mediumImpact();
+        await _requestPermissions();
         await OnboardingPage.markOnboardingComplete();
         if (context.mounted) {
           // Replace onboarding with MainPage
@@ -99,6 +106,7 @@ class _OnboardingPageState extends State<OnboardingPage> with TickerProviderStat
       },
       onSkip: () async {
         await HapticFeedbackUtil.selectionClick();
+        await _requestPermissions();
         await OnboardingPage.markOnboardingComplete();
         if (context.mounted) {
           // Replace onboarding with MainPage
@@ -111,6 +119,9 @@ class _OnboardingPageState extends State<OnboardingPage> with TickerProviderStat
         setState(() {
           _currentPage = index;
         });
+        if (index > _permissionsPageIndex) {
+          _requestPermissions();
+        }
         // Reset rotation animation on page change
         _rotationController.reset();
         _rotationController.forward();
@@ -165,6 +176,12 @@ class _OnboardingPageState extends State<OnboardingPage> with TickerProviderStat
     );
   }
 
+  Future<void> _requestPermissions() async {
+    if (_permissionsRequested) return;
+    _permissionsRequested = true;
+    await PermissionService.requestSearchPermissions();
+  }
+
   // What keeps the search running with the screen locked: on Android, being
   // exempt from battery optimisation; on iOS, location access (see
   // BackgroundKeepAlive.swift), without which the screen has to stay on.
@@ -174,7 +191,7 @@ class _OnboardingPageState extends State<OnboardingPage> with TickerProviderStat
       _isIOS ? 'Tilgang til posisjon' : 'Batterioptimalisering';
 
   static String get _backgroundText => _isIOS
-      ? 'For at Fylgja skal kunne søke når skjermen er låst, trenger appen tilgang til posisjonen din mens den er i bruk. Du ser et blått posisjonssymbol øverst på skjermen mens Fylgja søker. Uten tilgang må skjermen være på mens du søker.'
+      ? 'For at Fylgja skal kunne søke når skjermen er låst, trenger appen tilgang til posisjonen din mens den er i bruk. Du ser et blått posisjonssymbol øverst på skjermen mens Fylgja søker. Uten tilgang må skjermen være på mens du søker. Fylgja ber også om å få sende varsler, så du ser det når dekning blir funnet.'
       : 'For best funksjonalitet, sørg for at Fylgja ikke er begrenset av batterioptimalisering. Dette sikrer at appen kan overvåke dekning selv når telefonen er i dyp søvn.';
 
   Widget _buildRotatingImage() {

@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart';
 import 'package:vibration/vibration.dart';
 import '../utils/logger.dart';
 import 'coverage_vibration_pattern.dart';
+import 'notification_service.dart';
 
 class NativeNotificationService {
   static const MethodChannel _channel = MethodChannel('fylgja/notifications');
@@ -16,7 +17,8 @@ class NativeNotificationService {
 
   // iOS has no native alert code, so the sound is played from Dart. The app is
   // kept running by BackgroundKeepAlive (or the screen is kept on), so the
-  // sound can play directly and no notification is needed.
+  // sound can play directly; in the background a notification says why and
+  // opens the app to pause or stop.
   static AudioPlayer? _iosPlayer;
 
   static Future<AudioPlayer> _getIOSPlayer() async {
@@ -100,6 +102,13 @@ class NativeNotificationService {
   static Future<void> showCoverageNotification({bool showNotification = true}) async {
     if (_isIOS) {
       await _playIOSAlert();
+      if (showNotification) {
+        try {
+          await NotificationService.showCoverageNotification();
+        } catch (e) {
+          AppLogger.error('Error showing coverage notification (iOS)', e);
+        }
+      }
       return;
     }
     if (!isSupported) {
@@ -118,8 +127,13 @@ class NativeNotificationService {
 
   static Future<void> cancelNotification() async {
     if (_isIOS) {
-      // No notification on iOS; coverage was lost or the alert dismissed, so end it.
+      // Coverage was lost or the alert dismissed, so end it.
       await _stopIOSAlert();
+      try {
+        await NotificationService.cancelNotification();
+      } catch (e) {
+        AppLogger.error('Error cancelling coverage notification (iOS)', e);
+      }
       return;
     }
     if (!isSupported) {

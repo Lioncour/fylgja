@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:geolocator/geolocator.dart';
 import 'viewmodels/main_viewmodel.dart';
 import 'theme/app_theme.dart';
 import 'pages/main_page.dart';
@@ -18,41 +17,7 @@ void main() async {
   AppLogger.info('Initializing background service for standby mode');
   await BackgroundService.initializeService();
   
-  // Request location permission at startup
-  await _requestLocationPermission();
-  
   runApp(const FylgjaApp());
-}
-
-Future<void> _requestLocationPermission() async {
-  try {
-    // Check if location services are enabled
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      AppLogger.info('Location services are disabled');
-      return;
-    }
-
-    // Check location permission
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      // Request permission
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        AppLogger.info('Location permission denied by user');
-        return;
-      }
-    }
-
-    if (permission == LocationPermission.deniedForever) {
-      AppLogger.info('Location permission denied forever');
-      return;
-    }
-
-    AppLogger.info('Location permission granted');
-  } catch (e) {
-    AppLogger.error('Error requesting location permission', e);
-  }
 }
 
 class FylgjaApp extends StatelessWidget {

@@ -11,6 +11,7 @@ import '../services/native_notification_service.dart';
 import '../services/native_connectivity_service.dart';
 import '../services/native_event_service.dart';
 import '../services/coverage_history_service.dart';
+import '../services/permission_service.dart';
 import '../models/search_state.dart';
 import '../models/coverage_event.dart';
 import '../utils/logger.dart';
@@ -282,6 +283,8 @@ class MainViewModel extends ChangeNotifier with WidgetsBindingObserver {
       // Load the iOS sound now, while in the foreground, so it can start
       // straight away if coverage is found with the screen locked.
       await NativeNotificationService.prepare();
+      // Installs that finished onboarding before it asked still need asking.
+      await PermissionService.requestNotificationPermission();
       
       // Also keep old service for compatibility
       try {
