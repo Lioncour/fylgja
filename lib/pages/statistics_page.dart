@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:geolocator/geolocator.dart';
 import '../theme/app_theme.dart';
 import '../services/coverage_history_service.dart';
 import '../models/coverage_event.dart';
 import '../utils/haptic_feedback.dart';
+import '../utils/map_launcher.dart';
 
 class StatisticsPage extends StatefulWidget {
   const StatisticsPage({super.key});
@@ -49,56 +49,6 @@ class _StatisticsPageState extends State<StatisticsPage> {
     if (permission == LocationPermission.deniedForever) {
       // Permission denied forever, show a message
       return;
-    }
-  }
-
-  Future<void> _openInGoogleMaps(double latitude, double longitude) async {
-    // Try multiple URL formats without checking canLaunchUrl first
-    // canLaunchUrl can return false even when Google Maps is installed
-    
-    final urls = [
-      // Try Google Maps app intent (Android) - most reliable
-      Uri.parse('google.navigation:q=$latitude,$longitude'),
-      // Try geo: URI with query
-      Uri.parse('geo:$latitude,$longitude?q=$latitude,$longitude'),
-      // Try simple geo: URI
-      Uri.parse('geo:$latitude,$longitude'),
-      // Try Google Maps web URL (will open in browser or Maps app)
-      Uri.parse('https://www.google.com/maps/search/?api=1&query=$latitude,$longitude'),
-      // Try Google Maps URL without API parameter
-      Uri.parse('https://www.google.com/maps?q=$latitude,$longitude'),
-    ];
-
-    for (final url in urls) {
-      try {
-        // Try to launch directly without checking canLaunchUrl
-        // This works better on Android where canLaunchUrl can be unreliable
-        await launchUrl(
-          url,
-          mode: LaunchMode.externalApplication,
-        );
-        // If we get here without exception, it worked
-        return;
-      } catch (e) {
-        // Continue to next URL format
-        continue;
-      }
-    }
-
-    // If all URLs failed, try with platform default mode
-    try {
-      final webUrl = Uri.parse('https://www.google.com/maps?q=$latitude,$longitude');
-      await launchUrl(webUrl, mode: LaunchMode.platformDefault);
-    } catch (e) {
-      // Show error message only if all attempts failed
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Kunne ikke åpne Google Maps. Prøv å installere Google Maps fra Play Store.'),
-            duration: Duration(seconds: 4),
-          ),
-        );
-      }
     }
   }
 
@@ -382,7 +332,8 @@ class _StatisticsPageState extends State<StatisticsPage> {
               InkWell(
                 onTap: () async {
                   await HapticFeedbackUtil.selectionClick();
-                  await _openInGoogleMaps(event.latitude!, event.longitude!);
+                  if (!mounted) return;
+                  await MapLauncher.open(context, event.latitude!, event.longitude!);
                 },
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -394,7 +345,7 @@ class _StatisticsPageState extends State<StatisticsPage> {
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      'Åpne i Google Maps',
+                      'Åpne i kart',
                       style: TextStyle(
                         color: AppTheme.indicatorAndIcon,
                         fontSize: 12,

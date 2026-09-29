@@ -6,25 +6,34 @@ class NativeConnectivityService {
   static const MethodChannel _channel = MethodChannel('fylgja/connectivity');
 
   static bool get isSupported =>
-      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS);
 
-  /// Start the native Android foreground service for connectivity monitoring.
-  /// This is the only monitor that keeps working in deep sleep and standby.
-  static Future<void> startMonitoring() async {
+  /// Starts native coverage detection, which reports on [NativeEventService]:
+  /// on Android the foreground service, the only monitor that keeps working in
+  /// deep sleep and standby; on iOS CoverageMonitor, which also keeps the app
+  /// running while the screen is locked.
+  ///
+  /// Returns whether the search keeps running with the screen locked. On iOS
+  /// that needs location access; without it the app is suspended as usual.
+  static Future<bool> startMonitoring() async {
     if (!isSupported) {
-      AppLogger.info('Native connectivity service is Android-only; skipping');
-      return;
+      AppLogger.info('Native connectivity service is not supported here; skipping');
+      return false;
     }
     try {
-      await _channel.invokeMethod('startMonitoring');
+      final keepsRunning = await _channel.invokeMethod<bool>('startMonitoring');
       AppLogger.info('Native connectivity service started');
+      // Android returns nothing; its foreground service always keeps running.
+      return keepsRunning ?? true;
     } catch (e) {
       AppLogger.error('Error starting native connectivity service', e);
       rethrow;
     }
   }
 
-  /// Stop the native Android foreground service and any active alert.
+  /// Stop the native monitoring (and on Android any active alert).
   static Future<void> stopMonitoring() async {
     if (!isSupported) {
       return;

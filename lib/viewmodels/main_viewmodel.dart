@@ -11,6 +11,7 @@ import '../services/native_notification_service.dart';
 import '../services/native_connectivity_service.dart';
 import '../services/native_event_service.dart';
 import '../services/coverage_history_service.dart';
+import '../services/permission_service.dart';
 import '../models/search_state.dart';
 import '../models/coverage_event.dart';
 import '../utils/logger.dart';
@@ -27,6 +28,13 @@ class MainViewModel extends ChangeNotifier with WidgetsBindingObserver {
   Timer? _pauseBackupTimer;
   Timer? _searchTicker;
   Duration? _pauseRemaining;
+  // iOS: whether the native CoverageMonitor is detecting coverage, which makes
+  // the Dart poller unnecessary.
+  bool _nativeDetectsCoverage = false;
+  // iOS: whether the search can't keep running with the screen locked (no
+  // location access), so the screen has to stay on instead.
+  bool _keepAliveUnavailable = false;
+  bool _showScreenOnNotice = false;
   
   // Connectivity monitoring
   StreamSubscription<ConnectivityResult>? _connectivitySubscription;
@@ -40,6 +48,7 @@ class MainViewModel extends ChangeNotifier with WidgetsBindingObserver {
   
   // Error handling
   String? _errorMessage;
+  bool _errorShown = false;
   
   // Getters
   SearchState get state => _state;
@@ -52,6 +61,8 @@ class MainViewModel extends ChangeNotifier with WidgetsBindingObserver {
   DateTime? get searchStartTime => _searchStartTime;
   DateTime? get pauseStartTime => _pauseStartTime;
   Duration? get pauseRemaining => _pauseRemaining;
+  /// Set when a search starts that can only run with the screen on.
+  bool get showScreenOnNotice => _showScreenOnNotice;
   
   MainViewModel() {
     _loadPauseDuration();
@@ -84,9 +95,9 @@ class MainViewModel extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  /// The native foreground service is the only monitor that survives Doze, so
-  /// its coverage events have to reach the UI even when the Dart poller is not
-  /// running.
+  /// The native monitor is the only one that survives Doze on Android and the
+  /// only one on iOS, so its coverage events have to reach the UI even when the
+  /// Dart poller is not running.
   void _setupNativeEventListener() {
     try {
       _nativeEventSubscription = NativeEventService.eventStream.listen(
@@ -181,11 +192,13 @@ class MainViewModel extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
   
-  /// iOS suspends the app when the screen locks, which stops the search, so keep
-  /// the screen awake while searching or paused (the pause resumes the search).
+  /// iOS suspends the app when the screen locks, which stops the search.
+  /// BackgroundKeepAlive normally prevents that; without it, keep the screen
+  /// awake while searching. A pause may let the screen lock: its timer runs
+  /// on the clock, so the search resumes when the app is opened again.
   void _updateWakelock() {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return;
-    final keepAwake = _state == SearchState.searching || _state == SearchState.paused;
+    final keepAwake = _keepAliveUnavailable && _state == SearchState.searching;
     WakelockPlus.toggle(enable: keepAwake);
   }
   
@@ -209,6 +222,7 @@ class MainViewModel extends ChangeNotifier with WidgetsBindingObserver {
   
   void _setError(String? message) {
     _errorMessage = message;
+    _errorShown = false;
     notifyListeners();
     if (message != null) {
       AppLogger.warning('Error set: $message');
@@ -217,6 +231,21 @@ class MainViewModel extends ChangeNotifier with WidgetsBindingObserver {
   
   void clearError() {
     _setError(null);
+  }
+  
+  /// The error message if it hasn't been shown yet, and marks it as shown, so
+  /// the page shows each error once rather than on every rebuild. Doesn't
+  /// notify, since it is called while building.
+  String? takeErrorToShow() {
+    if (_errorMessage == null || _errorShown) return null;
+    _errorShown = true;
+    return _errorMessage;
+  }
+  
+  /// Called by the page once it has shown the notice. Doesn't notify, since it
+  /// is called while building.
+  void dismissScreenOnNotice() {
+    _showScreenOnNotice = false;
   }
   
   Future<void> startSearch() async {
@@ -244,19 +273,18 @@ class MainViewModel extends ChangeNotifier with WidgetsBindingObserver {
       _setState(SearchState.searching);
       _searchStartTime = DateTime.now();
       
-      // Start NATIVE Android service for standby mode. On iOS this is a
-      // no-op; Dart connectivity monitoring below is the foreground path.
-      try {
-        await NativeConnectivityService.startMonitoring();
-        if (NativeConnectivityService.isSupported) {
-          AppLogger.info('Native service started successfully');
-        }
-      } catch (e) {
-        AppLogger.error('Error starting native service', e);
-        if (NativeConnectivityService.isSupported) {
-          _setError('Kunne ikke starte overvåking. Sjekk app-tillatelser.');
-        }
+      // Start the native monitor for standby mode. On iOS it also keeps the
+      // app running with the screen locked, which needs location access.
+      await _startNativeMonitoring();
+      if (_keepAliveUnavailable) {
+        _showScreenOnNotice = true;
       }
+      
+      // Load the iOS sound now, while in the foreground, so it can start
+      // straight away if coverage is found with the screen locked.
+      await NativeNotificationService.prepare();
+      // Installs that finished onboarding before it asked still need asking.
+      await PermissionService.requestNotificationPermission();
       
       // Also keep old service for compatibility
       try {
@@ -272,7 +300,8 @@ class MainViewModel extends ChangeNotifier with WidgetsBindingObserver {
         AppLogger.error('Error with Flutter background service', e);
       }
       
-      // Also start direct connectivity monitoring as fallback
+      // Also start direct connectivity monitoring as fallback (not on iOS,
+      // unless the native monitor failed)
       await _startConnectivityMonitoring();
       AppLogger.info('Search started successfully with both monitoring systems');
       
@@ -454,13 +483,7 @@ class MainViewModel extends ChangeNotifier with WidgetsBindingObserver {
     _searchStartTime = DateTime.now();
     
     // Resume NATIVE service
-    try {
-      await NativeConnectivityService.startMonitoring();
-      AppLogger.info('Native service restarted');
-    } catch (e) {
-      AppLogger.error('Error restarting native service', e);
-      _setError('Kunne ikke gjenoppta overvåking.');
-    }
+    await _startNativeMonitoring();
     
     // Resume connectivity monitoring
     await _startConnectivityMonitoring();
@@ -469,10 +492,35 @@ class MainViewModel extends ChangeNotifier with WidgetsBindingObserver {
     await HapticFeedbackUtil.selectionClick();
   }
   
+  Future<void> _startNativeMonitoring() async {
+    final isIOS = !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+    try {
+      final keepsRunning = await NativeConnectivityService.startMonitoring();
+      _nativeDetectsCoverage = true;
+      // Without location access iOS still detects coverage, but only while
+      // the screen is on.
+      _keepAliveUnavailable = isIOS && !keepsRunning;
+      if (NativeConnectivityService.isSupported) {
+        AppLogger.info('Native service started successfully (keeps running when locked: $keepsRunning)');
+      }
+    } catch (e) {
+      AppLogger.error('Error starting native service', e);
+      _nativeDetectsCoverage = false;
+      if (isIOS) {
+        // The Dart poller takes over, but only with the screen on.
+        _keepAliveUnavailable = true;
+      } else if (NativeConnectivityService.isSupported) {
+        _setError('Kunne ikke starte overvåking. Sjekk app-tillatelser.');
+      }
+    }
+    _updateWakelock();
+  }
+  
   void _handleCoverageFound() {
     // The native service, the Dart poller and the background service can all
-    // report the same event; only the first one may raise the alert.
-    if (_state == SearchState.coverageFound || _state == SearchState.paused) {
+    // report the same event; only the first one may raise the alert. A late
+    // native event after the search was stopped must not raise it either.
+    if (_state != SearchState.searching) {
       AppLogger.debug('Coverage event ignored - already handled (state: $_state)');
       return;
     }
@@ -587,6 +635,10 @@ class MainViewModel extends ChangeNotifier with WidgetsBindingObserver {
   
   // Connectivity monitoring implementation
   Future<void> _startConnectivityMonitoring() async {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS && _nativeDetectsCoverage) {
+      AppLogger.debug('Native CoverageMonitor detects coverage on iOS; no Dart poller');
+      return;
+    }
     AppLogger.debug('Starting connectivity monitoring');
     
     // Cancel any existing monitoring

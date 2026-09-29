@@ -10,7 +10,12 @@ class NotificationService {
     if (_isInitialized) return;
 
     const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const iosSettings = DarwinInitializationSettings();
+    // Permission is asked for by requestPermission, after onboarding explains it.
+    const iosSettings = DarwinInitializationSettings(
+      requestAlertPermission: false,
+      requestBadgePermission: false,
+      requestSoundPermission: false,
+    );
     const initSettings = InitializationSettings(
       android: androidSettings,
       iOS: iosSettings,
@@ -46,6 +51,15 @@ class NotificationService {
     print('NotificationService: Channel created with playSound: true, enableVibration: true');
   }
 
+  /// Asks for permission to show notifications on iOS. The coverage sound is
+  /// played by the app, so the notification needs no sound permission.
+  static Future<void> requestPermission() async {
+    await init();
+    await _notifications
+        .resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>()
+        ?.requestPermissions(alert: true);
+  }
+
   /// Shows the persistent notification when coverage is found
   static Future<void> showCoverageNotification() async {
     print('NotificationService: showCoverageNotification called');
@@ -68,6 +82,8 @@ class NotificationService {
 
     final notificationDetails = NotificationDetails(
       android: androidDetails,
+      // Silent: the app plays the coverage sound itself.
+      iOS: const DarwinNotificationDetails(presentSound: false),
     );
 
     print('NotificationService: Sending notification with sound and vibration');
